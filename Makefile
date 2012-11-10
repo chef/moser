@@ -81,7 +81,7 @@ dialyze: compile $(DEPS_PLT)
 
 rel: compile rel/moser
 rel/moser:
-	@cd rel;$(REBAR) generate 
+	@cd rel;$(REBAR) generate overlay_vars=db_vars.config
 
 relclean:
 	@rm -rf rel/moser

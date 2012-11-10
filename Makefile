@@ -34,6 +34,14 @@ ERLANG_DIALYZER_APPS = asn1 \
                        webtool \
                        xmerl
 
+use_locked_config = $(wildcard USE_REBAR_LOCKED)
+ifeq ($(use_locked_config),USE_REBAR_LOCKED)
+  rebar_config = rebar.config.lock
+else
+  rebar_config = rebar.config
+endif
+REBAR = rebar -C $(rebar_config)
+
 all: compile eunit dialyzer
 
 # Clean ebin and .eunit of this project
@@ -61,22 +69,35 @@ eunit:
 
 test: eunit
 
-# Only include local PLT if we have deps that we are going to analyze
-ifeq ($(strip $(DIALYZER_DEPS)),)
-dialyzer: ~/.dialyzer_plt
-	@dialyzer $(DIALYZER_OPTS) -r ebin
-else
-dialyzer: ~/.dialyzer_plt $(DEPS_PLT)
-	@dialyzer $(DIALYZER_OPTS) --plts ~/.dialyzer_plt $(DEPS_PLT) -r ebin
-
 $(DEPS_PLT):
-	@dialyzer --build_plt $(DIALYZER_DEPS) --output_plt $(DEPS_PLT)
-endif
+	dialyzer -nn --output_plt $(DEPS_PLT) --build_plt --apps $(ERLANG_APPS)
 
-~/.dialyzer_plt:
-	@echo "ERROR: Missing ~/.dialyzer_plt. Please wait while a new PLT is compiled."
-	dialyzer --build_plt --apps $(ERLANG_DIALYZER_APPS)
-	@echo "now try your build again"
+plt_deps:
+	dialyzer --plt $(DEPS_PLT) --output_plt $(DEPS_PLT) --add_to_plt deps/*/ebin
+
+
+dialyze: compile $(DEPS_PLT)
+	dialyzer -nn --plt $(DEPS_PLT) -Wunmatched_returns -Werror_handling -Wrace_conditions -r apps/pushy/ebin -I deps
+
+rel: compile rel/moser
+rel/moser:
+	@cd rel;$(REBAR) generate 
+
+relclean:
+	@rm -rf rel/moser
+
+devrel: rel
+	@/bin/echo -n Symlinking deps and apps into release
+	@$(foreach lib,$(wildcard apps/* deps/*), /bin/echo -n .;rm -rf rel/moser/lib/$(shell basename $(lib))-* \
+           && ln -sf $(abspath $(lib)) rel/moser/lib;)
+	@/bin/echo done.
+	@/bin/echo  Run \'make update\' to pick up changes in a running VM.
+
+update: compile
+	@cd rel/moser;bin/moser restart
+
+update_app: compile_app
+	@cd rel/moser;bin/moser restart
 
 doc:
 	@rebar doc skip_deps=true

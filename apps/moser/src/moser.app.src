@@ -5,7 +5,11 @@
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+		  jiffy,
+		  sqerl,
+		  lager,
+		  folsom
                  ]},
   {mod, { moser_app, []}},
   {env, []}

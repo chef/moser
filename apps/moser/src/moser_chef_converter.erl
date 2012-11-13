@@ -52,7 +52,8 @@ insert(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org) ->
                                dict:new(), Chef] ),
     io:format("Stats: ~p~n", [dict:to_list(Totals)]),
     io:format("Database ~s (org ~s) insertions took ~f seconds", [Name, Guid, Time/10000000]).
-
+%%
+%% Data bag
 insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
     Name = ej:get({<<"name">>}, Data),
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
@@ -61,27 +62,33 @@ insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
       authz_id = AId,
       org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name },
-    DataBagWithDate = chef_object:set_created(DataBag, RequestorId),
-    chef_sql:create_data_bag(DataBagWithDate),
+    ObjWithDate = chef_object:set_created(DataBag, RequestorId),
+    chef_sql:create_data_bag(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
+%% 
+%% Data bag item
 insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
     RawData = ej:get({<<"raw_data">>}, Data),
     DataBagName = ej:get({<<"data_bag">>}, Data),
     ItemName = ej:get({<<"name">>}, Data),
     {_AId, RequestorId} = get_authz_info(Org, Type, DataBagName, Id),
     SerializedObject = jiffy:encode(RawData),
-    Obj = #chef_data_bag_item{
+    DataBagItem = #chef_data_bag_item{
       id = shrink_id(Id), %% TODO do real id conversion
       org_id = iolist_to_binary(Org#org_info.org_id),
       data_bag_name = DataBagName,
       item_name = ItemName,
       serialized_object = SerializedObject
      },
-    ObjWithDate = chef_object:set_created(Obj, RequestorId),
+    ObjWithDate = chef_object:set_created(DataBagItem, RequestorId),
     chef_sql:create_data_bag_item(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
+%%
+%%
 insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
     dict:update_counter(Type, 1, Acc);
 insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
+
+

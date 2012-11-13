@@ -51,7 +51,7 @@ insert(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org) ->
                                end,
                                dict:new(), Chef] ),
     io:format("Stats: ~p~n", [dict:to_list(Totals)]),
-    io:format("Database ~s (org ~s) insertions took ~f seconds", [Name, Guid, Time/10000000]).
+    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]).
 %%
 %% Data bag
 insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
@@ -84,11 +84,32 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
     chef_sql:create_data_bag_item(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
+%% Role
+insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
+    Name = ej:get({<<"name">>}, Data),
+    {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
+    SerializedObject = jiffy:encode(Data),
+    Role = #chef_role{
+      id = shrink_id(Id), %% TODO do real id conversion
+      authz_id = AId,
+      org_id = get_org_id(Org),
+      name = Name,
+      serialized_object = SerializedObject
+     },
+    ObjWithDate = chef_object:set_created(Role, RequestorId),
+    chef_sql:create_role(ObjWithDate),
+    dict:update_counter(Type, 1, Acc);
+
+%%
 %%
 insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
     dict:update_counter(Type, 1, Acc);
 insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
+
+
+get_org_id(#org_info{org_id = OrgId}) ->
+    iolist_to_binary(OrgId).
 
 

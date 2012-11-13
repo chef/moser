@@ -8,9 +8,9 @@
                   stdlib,
 		  jiffy,
 		  sqerl,
-		  lager,
-		  folsom
+		  lager
                  ]},
+  {included_applications, []},
   {mod, { moser_app, []}},
   {env, []}
  ]}.

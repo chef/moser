@@ -65,7 +65,6 @@ insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
     chef_sql:create_data_bag(DataBagWithDate),
     dict:update_counter(Type, 1, Acc);
 insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
-    ?debugVal(Data),
     RawData = ej:get({<<"raw_data">>}, Data),
     DataBagName = ej:get({<<"data_bag">>}, Data),
     ItemName = ej:get({<<"name">>}, Data),
@@ -79,7 +78,6 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
       serialized_object = SerializedObject
      },
     ObjWithDate = chef_object:set_created(Obj, RequestorId),
-    ?debugVal(ObjWithDate),
     chef_sql:create_data_bag_item(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->

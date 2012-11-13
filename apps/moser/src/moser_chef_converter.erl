@@ -32,10 +32,15 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+shrink_id(X) ->
+    binary:replace(X, <<"-">>, <<>>,[global]).
+
+
 %% This needs to look up the mixlib auth doc, find the user side id and the requestor id, 
 %% map the user side id via opscode_account to the auth side id and return a tuple
-get_authz_info(_Org, Type, Name, Id) ->
-    AuthzId = iolist_to_binary([erlang:atom_to_binary(Type, utf8), "-", Name, "-", Id]),
+get_authz_info(_Org, _Type, _Name, Id) ->
+    AuthzId = shrink_id(Id), 
+    %% <<AuthzId:30/binary, _Rest/binary>> = iolist_to_binary([erlang:atom_to_binary(Type, utf8), "-", Name, "-", Id]),
     RequestorId = AuthzId,
     {AuthzId, RequestorId}.
 
@@ -53,9 +58,9 @@ insert_one(Org, {{databag = Type, Id}, Data} = Item, Acc) ->
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
     ?debugVal(Item),
     Obj = #chef_data_bag{
-      id = Id, %% TODO do real id conversion
+      id = shrink_id(Id), %% TODO do real id conversion
       authz_id = AId,
-      org_id = Org#org_info.org_id,
+      org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name },
     ObjWithDate = chef_object:set_created(Obj, RequestorId),
     ?debugVal(ObjWithDate),

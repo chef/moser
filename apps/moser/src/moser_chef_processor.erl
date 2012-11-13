@@ -98,7 +98,7 @@ process_item_by_type({_, node}, _Org, _Key, _Body) ->
     ok;
 %% Process Chef:: types
 process_item_by_type({chef, ChefType}, Org, Key, Body) ->
-    ets:insert(Org#org_info.chef_ets, {Key, ChefType, Body});
+    ets:insert(Org#org_info.chef_ets, {{ChefType, Key}, Body});
 %% Process simple mixlib authorization types
 %% These just have the fields
 %% id, couchrest-type, name (or some variant), sometimes orgname, requester_id
@@ -122,8 +122,9 @@ process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
     ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
 
 %% Process various unmatched types
-process_item_by_type(undefined, _Org, <<"_design/", DesignDoc/binary>>, _Body) ->
-    io:format("Design doc ~s~n", [DesignDoc]);
+process_item_by_type(undefined, _Org, <<"_design/", _DesignDoc/binary>>, _Body) ->
+    %% io:format("Design doc ~s~n", [_DesignDoc]);
+    ok;
 process_item_by_type(undefined, _Org, _Key, _Body) ->
     ?debugVal(undefined),
     ?debugVal(_Key),

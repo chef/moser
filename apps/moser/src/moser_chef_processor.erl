@@ -38,7 +38,8 @@ process_couch_file(OrgId) ->
     CData = ets:new(chef_data, [set,public]),
     AData = ets:new(auth_data, [set,public]),
 
-    DbName = lists:flatten(["chef_", OrgId, ".couch"]),
+    BasePath = "/srv/piab/mounts/moser/", %% TODO make configurable
+    DbName = lists:flatten([BasePath, "chef_", OrgId, ".couch"]),
 
     Org = #org_info{ org_name = "TBD",
                      org_id = OrgId,
@@ -52,7 +53,7 @@ process_couch_file(OrgId) ->
              end,
     decouch_reader:open_process_all(DbName, IterFn),
     %% TODO: fix this to get orgname properly (from guid or something)
-    case ets:lookup(Org#org_info.chef_ets, orgname) of 
+    case ets:lookup(Org#org_info.chef_ets, orgname) of
         [] -> Org;
         [{orgname, OrgName}] ->
             Org#org_info{org_name = OrgName}
@@ -78,7 +79,7 @@ cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth
 process_item(Org, Key, Body) ->
     JClass = ej:get({<<"json_class">>}, Body),
     CRType = ej:get({<<"couchrest-type">>}, Body),
-    Type  = case {JClass, CRType} of 
+    Type  = case {JClass, CRType} of
                 {undefined, undefined} -> undefined;
                 {undefined, T} -> T;
                 {T, undefined} -> T;
@@ -161,5 +162,3 @@ mixlib_name_key(cookbook) -> <<"display_name">>;
 mixlib_name_key(group) -> <<"groupname">>;
 mixlib_name_key(sandbox) -> <<"sandbox_id">>;
 mixlib_name_key(_) -> <<"name">>.
-
-

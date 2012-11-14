@@ -40,8 +40,10 @@
 process_account_file() ->
     DbName = lists:flatten([moser_chef_processor:get_couch_path(), "opscode_account.couch"]),
     Account = #account_info{
-                user_to_authz = ets:new(user_to_authz, [set, public]),
-                authz_to_user = ets:new(authz_to_user, [set, public]) },
+      user_to_authz = ets:new(user_to_authz, [set, public]),
+      authz_to_user = ets:new(authz_to_user, [set, public]),
+      db = ets:new(account_db, [set, public])
+     },
 
     IterFn = fun(Key, Body, AccIn) ->
                      process_account_item(Account, Key, Body),
@@ -61,7 +63,10 @@ process_account_item(Account, Key, Body) ->
     process_item_by_type(normalize_type_name(Type), Account, Key, Body),
     ok.
 
-
+process_item_by_type(auth_group, 
+                     #account_info{db=Db}, Key, Body) ->
+    ets:insert(Db, {{auth_group, Key}, Body}),
+    ok;
 process_item_by_type(auth_join,
                      #account_info{user_to_authz=User2Auth,
                                    authz_to_user=Auth2User},
@@ -71,14 +76,20 @@ process_item_by_type(auth_join,
     ets:insert(User2Auth, {UserId, AuthId}),
     ets:insert(Auth2User, {AuthId, UserId}),
     ok;
+process_item_by_type(auth_org, #account_info{db=Db},
+                     _Key, Body) ->
+    ?debugFmt("~s ~p~n", [auth_org, Body]),
+    _Key = Body,
+    ok;
 %%
 %% Catch all
 %% 
-process_item_by_type(_, _Acct, _Key, _Body) ->
-    ?debugVal(_Body),
+process_item_by_type(_Type, _Acct, _Key, Body) ->
+    ?debugFmt("~s ~p~n", [_Type, Body]),
     ok.
 
 normalize_type_name(<<"Mixlib::Authorization::AuthJoin">>) -> auth_join;
 normalize_type_name(<<"Mixlib::Authorization::Models::Group">>) -> auth_group;
-normalize_type_name(<<"Mixlib::Authorization::Models::Organization">>) -> auth_org.
-
+normalize_type_name(<<"Mixlib::Authorization::Models::Organization">>) -> auth_org;
+normalize_type_name(<<"OrganizationUser">>) -> org_user.
+     

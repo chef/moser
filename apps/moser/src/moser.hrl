@@ -37,4 +37,6 @@
 
 -record(account_info,
         { user_to_authz,
-          authz_to_user}).
+          authz_to_user,
+          db
+        }).

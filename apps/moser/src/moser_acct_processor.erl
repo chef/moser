@@ -63,7 +63,7 @@ process_account_item(Account, Key, Body) ->
     process_item_by_type(normalize_type_name(Type), Account, Key, Body),
     ok.
 
-process_item_by_type(auth_group, 
+process_item_by_type(auth_group,
                      #account_info{db=Db}, Key, Body) ->
     ets:insert(Db, {{auth_group, Key}, Body}),
     ok;
@@ -76,20 +76,33 @@ process_item_by_type(auth_join,
     ets:insert(User2Auth, {UserId, AuthId}),
     ets:insert(Auth2User, {AuthId, UserId}),
     ok;
-process_item_by_type(auth_org, #account_info{db=Db},
-                     _Key, Body) ->
-    ?debugFmt("~s ~p~n", [auth_org, Body]),
-    _Key = Body,
+process_item_by_type(auth_org,
+                     #account_info{db=Db}, Key, Body) ->
+    ets:insert(Db, {{auth_org, Key}, Body}),
+    ok;
+process_item_by_type(auth_user,
+                     #account_info{db=Db}, Key, Body) ->
+    ets:insert(Db, {{auth_user, Key}, Body}),
+    ok;
+process_item_by_type(association_request,
+                     #account_info{db=Db}, Key, Body) ->
+    ets:insert(Db, {{association_request, Key}, Body}),
+    ok;
+process_item_by_type(org_user,
+                     #account_info{db=Db}, Key, Body) ->
+    ets:insert(Db, {{org_user, Key}, Body}),
     ok;
 %%
 %% Catch all
-%% 
+%%
 process_item_by_type(_Type, _Acct, _Key, Body) ->
     ?debugFmt("~s ~p~n", [_Type, Body]),
     ok.
 
+normalize_type_name(<<"AssociationRequest">>) -> association_request;
 normalize_type_name(<<"Mixlib::Authorization::AuthJoin">>) -> auth_join;
+normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> auth_container;
 normalize_type_name(<<"Mixlib::Authorization::Models::Group">>) -> auth_group;
 normalize_type_name(<<"Mixlib::Authorization::Models::Organization">>) -> auth_org;
+normalize_type_name(<<"Mixlib::Authorization::Models::User">>) -> auth_user;
 normalize_type_name(<<"OrganizationUser">>) -> org_user.
-     

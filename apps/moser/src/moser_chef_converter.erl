@@ -53,8 +53,9 @@ insert(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org) ->
     io:format("Stats: ~p~n", [dict:to_list(Totals)]),
     io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]).
 %%
-%% Data bag
-insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
+%% client
+insert_one(Org, {{client = Type, Id}, Data}, Acc) ->
+    ?debugVal(Data),
     Name = ej:get({<<"name">>}, Data),
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
     DataBag = #chef_data_bag{
@@ -62,6 +63,22 @@ insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
       authz_id = AId,
       org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name },
+    ObjWithDate = chef_object:set_created(DataBag, RequestorId),
+    chef_sql:create_data_bag(ObjWithDate),
+    dict:update_counter(Type, 1, Acc);
+%%
+%% Data bag
+insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
+    Name = ej:get({<<"name">>}, Data),
+    {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
+    DataBag = #chef_client{
+      id = shrink_id(Id), %% TODO do real id conversion
+      authz_id = AId,
+      org_id = iolist_to_binary(Org#org_info.org_id),
+      name = Name,
+      validator = false,
+      admin = false,
+      public_key = <<>> },
     ObjWithDate = chef_object:set_created(DataBag, RequestorId),
     chef_sql:create_data_bag(ObjWithDate),
     dict:update_counter(Type, 1, Acc);

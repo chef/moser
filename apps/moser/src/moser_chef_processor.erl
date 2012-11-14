@@ -24,7 +24,11 @@
 -module(moser_chef_processor).
 
 %% API
--export([process_couch_file/1, cleanup_org_info/1]).
+-export([cleanup_org_info/1,
+         extract_type/2,
+         get_couch_path/0,
+         process_couch_file/1
+        ]).
 
 -include("moser.hrl").
 
@@ -33,13 +37,17 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+get_couch_path() ->
+    envy:get(moser, couch_path,
+             "/srv/piab/mounts/moser/", %% TODO make default for private chef or something...
+             string).
+
 
 process_couch_file(OrgId) ->
     CData = ets:new(chef_data, [set,public]),
     AData = ets:new(auth_data, [set,public]),
 
-    BasePath = "/srv/piab/mounts/moser/", %% TODO make configurable
-    DbName = lists:flatten([BasePath, "chef_", OrgId, ".couch"]),
+    DbName = lists:flatten([get_couch_path(), "chef_", OrgId, ".couch"]),
 
     Org = #org_info{ org_name = "TBD",
                      org_id = OrgId,
@@ -48,7 +56,7 @@ process_couch_file(OrgId) ->
                      auth_ets = AData,
                      start_time = os:timestamp()},
     IterFn = fun(Key, Body, AccIn) ->
-                     process_item(Org, Key, Body),
+                     process_couch_item(Org, Key, Body),
                      AccIn
              end,
     decouch_reader:open_process_all(DbName, IterFn),
@@ -65,7 +73,6 @@ cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth
     Time = timer:now_diff(os:timestamp(), Start),
     io:format("Database ~s (org ~s) completed in ~f seconds", [Name, Guid, Time/10000000]).
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @spec
@@ -76,7 +83,7 @@ cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth
 %%% Internal functions
 %%%===================================================================
 
-process_item(Org, Key, Body) ->
+extract_type(Key, Body) ->
     JClass = ej:get({<<"json_class">>}, Body),
     CRType = ej:get({<<"couchrest-type">>}, Body),
     Type  = case {JClass, CRType} of
@@ -89,6 +96,11 @@ process_item(Org, Key, Body) ->
                     ?debugVal({JClass, CRType}),
                     error
             end,
+    Type.
+
+
+process_couch_item(Org, Key, Body) ->
+    Type = extract_type(Key, Body),
     process_item_by_type(normalize_type_name(Type), Org, Key, Body),
     ok.
 

@@ -34,3 +34,7 @@
           chef_ets,
           auth_ets,
           start_time}).
+
+-record(account_info,
+        { user_to_authz,
+          authz_to_user}).

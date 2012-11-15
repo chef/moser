@@ -38,11 +38,14 @@
 
 
 process_account_file() ->
+    {ok, U2A} = dets:open_file(user_to_authz, []),
+    {ok, A2U} = dets:open_file(authz_to_user, []),
+    {ok, Db} = dets:open_file(account_db, []),
     DbName = lists:flatten([moser_chef_processor:get_couch_path(), "opscode_account.couch"]),
     Account = #account_info{
-      user_to_authz = ets:new(user_to_authz, [set, public]),
-      authz_to_user = ets:new(authz_to_user, [set, public]),
-      db = ets:new(account_db, [set, public])
+      user_to_authz = U2A,
+      authz_to_user = A2U,
+      db = Db
      },
 
     IterFn = fun(Key, Body, AccIn) ->
@@ -52,20 +55,26 @@ process_account_file() ->
     decouch_reader:open_process_all(DbName, IterFn),
     Account.
 
-cleanup_account_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth_ets = Auth, start_time = Start}) ->
-    ets:delete(Chef),
-    ets:delete(Auth),
-    Time = timer:now_diff(os:timestamp(), Start),
-    io:format("Database ~s (org ~s) completed in ~f seconds", [Name, Guid, Time/10000000]).
+cleanup_account_info(#account_info{user_to_authz = U2A,
+                                   authz_to_user = A2U,
+                                   db = Db}) ->
+    dets:delete(U2A),
+    dets:delete(A2U),
+    dets:delete(Db).
 
 process_account_item(Account, Key, Body) ->
     Type = moser_chef_processor:extract_type(Key, Body),
-    process_item_by_type(normalize_type_name(Type), Account, Key, Body),
+    case Type of
+        undefined ->
+            ?debugFmt("~s ~s ~p~n", [Type, Key, Body]);
+        _ -> 
+            process_item_by_type(normalize_type_name(Type), Account, Key, Body)
+    end,
     ok.
 
 process_item_by_type(auth_group,
                      #account_info{db=Db}, Key, Body) ->
-    ets:insert(Db, {{auth_group, Key}, Body}),
+    dets:insert(Db, {{auth_group, Key}, Body}),
     ok;
 process_item_by_type(auth_join,
                      #account_info{user_to_authz=User2Auth,
@@ -73,24 +82,24 @@ process_item_by_type(auth_join,
                      _Key, Body) ->
     UserId = ej:get({<<"user_object_id">>}, Body),
     AuthId = ej:get({<<"auth_object_id">>}, Body),
-    ets:insert(User2Auth, {UserId, AuthId}),
-    ets:insert(Auth2User, {AuthId, UserId}),
+    dets:insert(User2Auth, {UserId, AuthId}),
+    dets:insert(Auth2User, {AuthId, UserId}),
     ok;
 process_item_by_type(auth_org,
                      #account_info{db=Db}, Key, Body) ->
-    ets:insert(Db, {{auth_org, Key}, Body}),
+    dets:insert(Db, {{auth_org, Key}, Body}),
     ok;
 process_item_by_type(auth_user,
                      #account_info{db=Db}, Key, Body) ->
-    ets:insert(Db, {{auth_user, Key}, Body}),
+    dets:insert(Db, {{auth_user, Key}, Body}),
     ok;
 process_item_by_type(association_request,
                      #account_info{db=Db}, Key, Body) ->
-    ets:insert(Db, {{association_request, Key}, Body}),
+    dets:insert(Db, {{association_request, Key}, Body}),
     ok;
 process_item_by_type(org_user,
                      #account_info{db=Db}, Key, Body) ->
-    ets:insert(Db, {{org_user, Key}, Body}),
+    dets:insert(Db, {{org_user, Key}, Body}),
     ok;
 %%
 %% Catch all

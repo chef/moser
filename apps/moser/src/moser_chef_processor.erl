@@ -83,6 +83,8 @@ cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth
 %%% Internal functions
 %%%===================================================================
 
+extract_type(<<"_design/",_/binary>>, _Body) ->
+    design_doc;
 extract_type(Key, Body) ->
     JClass = ej:get({<<"json_class">>}, Body),
     CRType = ej:get({<<"couchrest-type">>}, Body),

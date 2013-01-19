@@ -72,7 +72,7 @@ insert(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org) ->
 %%
 %% Checksums need to be inserted before other things
 %%
-insert_prepass(Org, {{checksum = Type, Name}, Data}, Acc) ->
+insert_prepass(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     %%    ?debugVal({Type, Name}),
     %%    ?debugFmt("~p~n",[Data]),
     OrgId = get_org_id(Org),
@@ -180,7 +180,6 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
     ObjWithDate = chef_object:set_created(CookbookVersion, RequestorId),
     ?debugFmt("~p~n",[ObjWithDate]),
     chef_sql:create_cookbook_version(ObjWithDate),
-    exit(foobar),
     dict:update_counter(Type, 1, Acc);
 
 %%%
@@ -217,12 +216,12 @@ extract_client_key_info(Data) ->
 list_ej_keys({Ej}) ->
     lists:sort([K || {K,_} <- Ej]).
 
-clear_fields(Fields, Data) ->
-    lists:foldl(fun(E,A) ->
-                        ej:delete({E},A)
-                end,
-                Data,
-                Fields).
+%clear_fields(Fields, Data) ->
+%    lists:foldl(fun(E,A) ->
+%                        ej:delete({E},A)
+%                end,
+%                Data,
+%                Fields).
 
 extract_all_checksums(Sections, Data) ->
     lists:flatten([ extract_checksums(ej:get({Section}, Data)) || Section <- Sections ]).

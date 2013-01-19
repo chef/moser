@@ -32,6 +32,16 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(SEGMENTS,  [<<"attributes">>,
+                    <<"definitions">>,
+                    <<"files">>,
+                    <<"libraries">>,
+                    <<"providers">>,
+                    <<"recipes">>,
+                    <<"resources">>,
+                    <<"root_files">>,
+                    <<"templates">> ]).
+
 shrink_id(X) ->
     binary:replace(X, <<"-">>, <<>>,[global]).
 
@@ -45,46 +55,83 @@ get_authz_info(_Org, _Type, _Name, Id) ->
     {AuthzId, RequestorId}.
 
 insert(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org) ->
-    {Time, Totals} = timer:tc(
-                  ets, foldl, [fun(Item,Acc) ->
-                                       insert_one(Org, Item, Acc)
-                               end,
-                               dict:new(), Chef] ),
-    io:format("Stats: ~p~n", [dict:to_list(Totals)]),
-    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]).
+    {Time0, Totals0} = timer:tc(
+                        ets, foldl, [fun(Item,Acc) ->
+                                             insert_prepass(Org, Item, Acc)
+                                     end,
+                                     dict:new(), Chef] ),
+    io:format("Stats Pass 0: ~p~n", [dict:to_list(Totals0)]),
+    {Time1, Totals1} = timer:tc(
+                        ets, foldl, [fun(Item,Acc) ->
+                                             insert_one(Org, Item, Acc)
+                                     end,
+                                     Totals0, Chef] ),
+    io:format("Stats: ~p~n", [dict:to_list(Totals1)]),
+    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (Time0+Time1)/10000000]).
+
+%%
+%% Checksums need to be inserted before other things
+%%
+insert_prepass(Org, {{checksum = Type, Name}, Data}, Acc) ->
+    %%    ?debugVal({Type, Name}),
+    %%    ?debugFmt("~p~n",[Data]),
+    OrgId = get_org_id(Org),
+    %%    ?debugVal(OrgId),
+    Checksum = ej:get({"checksum"}, Data),
+    case sqerl:statement(insert_checksum, [OrgId, Checksum], count) of
+        {ok, 1} ->
+            ok;
+        Error ->
+            Error
+    end,
+    dict:update_counter(Type, 1, Acc);
+insert_prepass(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
+    RType = list_to_atom("PP_" ++ atom_to_list(Type)),
+    dict:update_counter(RType, 1, Acc);
+insert_prepass(_Org, Item, Acc) ->
+    ?debugVal(Item),
+    Acc.
+
+
 %%
 %% client
-insert_one(Org, {{client = Type, Id}, Data}, Acc) ->
-    ?debugVal(Data),
-    Name = ej:get({<<"name">>}, Data),
+insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
+%    ?debugVal({Name, Id}),
+%    ?debugFmt("~p~n",[Data]),
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
-    DataBag = #chef_data_bag{
+    {PubKey, PubKeyVersion, IsValidator, IsAdmin} = extract_client_key_info(Data),
+    Client = #chef_client{
       id = shrink_id(Id), %% TODO do real id conversion
       authz_id = AId,
       org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name },
-    ObjWithDate = chef_object:set_created(DataBag, RequestorId),
-    chef_sql:create_data_bag(ObjWithDate),
+      name = Name,
+      validator = IsValidator,
+      admin = IsAdmin,
+      public_key = PubKey,
+      pubkey_version = PubKeyVersion
+     },
+    ObjWithDate = chef_object:set_created(Client, RequestorId),
+    chef_sql:create_client(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Data bag
 insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
     Name = ej:get({<<"name">>}, Data),
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
-    DataBag = #chef_client{
+    DataBag = #chef_data_bag{
       id = shrink_id(Id), %% TODO do real id conversion
       authz_id = AId,
       org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name,
-      validator = false,
-      admin = false,
-      public_key = <<>> },
+      name = Name
+     },
     ObjWithDate = chef_object:set_created(DataBag, RequestorId),
     chef_sql:create_data_bag(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-%% 
+%%
 %% Data bag item
 insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
+    %%    ?debugVal({Type, Id}),
+    %%    ?debugFmt("~p~n",[Data]),
     RawData = ej:get({<<"raw_data">>}, Data),
     DataBagName = ej:get({<<"data_bag">>}, Data),
     ItemName = ej:get({<<"name">>}, Data),
@@ -116,11 +163,38 @@ insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
     ObjWithDate = chef_object:set_created(Role, RequestorId),
     chef_sql:create_role(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-
 %%
+%% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
+%%
+insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
+    ?debugVal({Type, Id}),
+    ?debugFmt("~p~n",[list_ej_keys(Data)]),
+    Name = ej:get({<<"cookbook_name">>}, Data),
+    {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
+
+    Checksums = extract_all_checksums(?SEGMENTS, Data),
+    ?debugFmt("~p~n", [lists:usort(Checksums)]),
+
+    BaseRecord = chef_object:new_record(chef_cookbook_version, get_org_id(Org), AId, Data),
+    CookbookVersion = BaseRecord#chef_cookbook_version{id = Id},
+    ObjWithDate = chef_object:set_created(CookbookVersion, RequestorId),
+    ?debugFmt("~p~n",[ObjWithDate]),
+    chef_sql:create_cookbook_version(ObjWithDate),
+    exit(foobar),
+    dict:update_counter(Type, 1, Acc);
+
+%%%
+%%% Handled in pass zero
+%%%
+insert_one(_Org, {{checksum, _Id}, _}, Acc) ->
+    Acc;
+%%
+%% Unhandled objects
 %%
 insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
-    dict:update_counter(Type, 1, Acc);
+    RType = list_to_atom("TODO_" ++ atom_to_list(Type)),
+    dict:update_counter(RType, 1, Acc);
+    %Acc;
 insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
@@ -130,3 +204,30 @@ get_org_id(#org_info{org_id = OrgId}) ->
     iolist_to_binary(OrgId).
 
 
+extract_client_key_info(Data) ->
+    case ej:get({"certificate"}, Data) of
+        undefined ->
+            %% figure out something better
+            {undefined, undefined, undefined, undefined};
+        PubKey ->
+            PubKeyVersion =  ?KEY_VERSION,
+            {PubKey, PubKeyVersion, false, false}
+    end.
+
+list_ej_keys({Ej}) ->
+    lists:sort([K || {K,_} <- Ej]).
+
+clear_fields(Fields, Data) ->
+    lists:foldl(fun(E,A) ->
+                        ej:delete({E},A)
+                end,
+                Data,
+                Fields).
+
+extract_all_checksums(Sections, Data) ->
+    lists:flatten([ extract_checksums(ej:get({Section}, Data)) || Section <- Sections ]).
+
+extract_checksums(undefined) ->
+    [];
+extract_checksums(SegmentData) ->
+    [ej:get({"checksum"}, Item) || Item <- SegmentData].

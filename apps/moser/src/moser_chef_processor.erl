@@ -135,6 +135,8 @@ process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
     ets:insert(Org#org_info.chef_ets, {orgname, OrgName}),
     ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
 
+process_item_by_type(design_doc, _, _, _) ->
+    ok;
 %% Process various unmatched types
 process_item_by_type(undefined, _Org, <<"_design/", _DesignDoc/binary>>, _Body) ->
     %% io:format("Design doc ~s~n", [_DesignDoc]);
@@ -165,6 +167,7 @@ normalize_type_name(<<"Chef::Environment">>) -> {chef, environment};
 normalize_type_name(<<"Chef::Node">>) -> {chef, node};
 normalize_type_name(<<"Chef::Role">>) -> {chef, role};
 normalize_type_name(<<"Chef::Sandbox">>) -> {chef, sandbox};
+normalize_type_name(design_doc) -> design_doc;
 normalize_type_name(undefined) -> undefined.
 
 

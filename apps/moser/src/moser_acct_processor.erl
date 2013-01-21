@@ -24,7 +24,9 @@
 -module(moser_acct_processor).
 
 %% API
--export([process_account_file/0,
+-export([open_account/0,
+         close_account/1,
+         process_account_file/0,
          cleanup_account_info/1
         ]).
 
@@ -36,17 +38,26 @@
 %%% API
 %%%===================================================================
 
-
-process_account_file() ->
+open_account() ->
     {ok, U2A} = dets:open_file(user_to_authz, []),
     {ok, A2U} = dets:open_file(authz_to_user, []),
     {ok, Db} = dets:open_file(account_db, []),
+    #account_info{
+                   user_to_authz = U2A,
+                   authz_to_user = A2U,
+                   db = Db
+                 }.
+
+close_account(#account_info{user_to_authz = U2A,
+                            authz_to_user = A2U,
+                            db = Db}) ->
+    dets:close(U2A),
+    dets:close(A2U),
+    dets:close(Db).
+
+process_account_file() ->
+    Account = open_account(),
     DbName = lists:flatten([moser_chef_processor:get_couch_path(), "opscode_account.couch"]),
-    Account = #account_info{
-      user_to_authz = U2A,
-      authz_to_user = A2U,
-      db = Db
-     },
 
     IterFn = fun(Key, Body, AccIn) ->
                      process_account_item(Account, Key, Body),
@@ -67,7 +78,7 @@ process_account_item(Account, Key, Body) ->
     case Type of
         undefined ->
             ?debugFmt("~s ~s ~p~n", [Type, Key, Body]);
-        _ -> 
+        _ ->
             process_item_by_type(normalize_type_name(Type), Account, Key, Body)
     end,
     ok.
@@ -114,4 +125,8 @@ normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> auth_cont
 normalize_type_name(<<"Mixlib::Authorization::Models::Group">>) -> auth_group;
 normalize_type_name(<<"Mixlib::Authorization::Models::Organization">>) -> auth_org;
 normalize_type_name(<<"Mixlib::Authorization::Models::User">>) -> auth_user;
-normalize_type_name(<<"OrganizationUser">>) -> org_user.
+normalize_type_name(<<"OrganizationUser">>) -> org_user;
+normalize_type_name(design_doc) -> design_doc;
+normalize_type_name(T) ->
+    ?debugFmt("Unknown type ~s~n", [T]),
+    unknown_type.

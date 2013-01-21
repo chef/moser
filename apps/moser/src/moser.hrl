@@ -1,4 +1,3 @@
-
 %% -*- erlang-indent-level: 4;indent-tabs-mode: nil; fill-column: 92 -*-
 %% ex: ts=4 sw=4 et
 %%
@@ -26,6 +25,11 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+-record(moser_config,
+        { couchdb_path : string(),
+          couchdb_uri : string()
+        }).
 
 -record(org_info,
         { org_name,

@@ -27,8 +27,8 @@
 %%%===================================================================
 
 -record(moser_config,
-        { couchdb_path : string(),
-          couchdb_uri : string()
+        { couchdb_path :: string(),
+          couchdb_uri :: string()
         }).
 
 -record(org_info,

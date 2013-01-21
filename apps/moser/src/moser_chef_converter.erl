@@ -42,17 +42,11 @@
                     <<"root_files">>,
                     <<"templates">> ]).
 
-%%
-%% TODO: Determine chef id migration strategy
-%%
-fix_chef_id(X) ->
-    binary:replace(X, <<"-">>, <<>>,[global]).
-
 
 %% This needs to look up the mixlib auth doc, find the user side id and the requestor id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
 get_authz_info(_Org, _Type, _Name, Id) ->
-    AuthzId = fix_chef_id(Id),
+    AuthzId = moser_utils:fix_chef_id(Id),
     %% <<AuthzId:30/binary, _Rest/binary>> = iolist_to_binary([erlang:atom_to_binary(Type, utf8), "-", Name, "-", Id]),
     RequestorId = AuthzId,
     {AuthzId, RequestorId}.
@@ -78,7 +72,7 @@ insert(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org) ->
 insert_prepass(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     %%    ?debugVal({Type, Name}),
     %%    ?debugFmt("~p~n",[Data]),
-    OrgId = get_org_id(Org),
+    OrgId = moser_utils:get_org_id(Org),
     %%    ?debugVal(OrgId),
     Checksum = ej:get({"checksum"}, Data),
     case sqerl:statement(insert_checksum, [OrgId, Checksum], count) of
@@ -104,7 +98,7 @@ insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
     {PubKey, PubKeyVersion, IsValidator, IsAdmin} = extract_client_key_info(Data),
     Client = #chef_client{
-      id = fix_chef_id(Id),
+      id = moser_utils:fix_chef_id(Id),
       authz_id = AId,
       org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name,
@@ -122,7 +116,7 @@ insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
     Name = ej:get({<<"name">>}, Data),
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
     DataBag = #chef_data_bag{
-      id = fix_chef_id(Id),
+      id = moser_utils:fix_chef_id(Id),
       authz_id = AId,
       org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name
@@ -141,7 +135,7 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
     {_AId, RequestorId} = get_authz_info(Org, Type, DataBagName, Id),
     SerializedObject = jiffy:encode(RawData),
     DataBagItem = #chef_data_bag_item{
-      id = fix_chef_id(Id),
+      id = moser_utils:fix_chef_id(Id),
       org_id = iolist_to_binary(Org#org_info.org_id),
       data_bag_name = DataBagName,
       item_name = ItemName,
@@ -157,9 +151,9 @@ insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
     SerializedObject = jiffy:encode(Data),
     Role = #chef_role{
-      id = fix_chef_id(Id),
+      id = moser_utils:fix_chef_id(Id),
       authz_id = AId,
-      org_id = get_org_id(Org),
+      org_id = moser_utils:get_org_id(Org),
       name = Name,
       serialized_object = SerializedObject
      },
@@ -171,14 +165,14 @@ insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
 %%
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
     ?debugVal({Type, Id}),
-    ?debugFmt("~p~n",[list_ej_keys(Data)]),
+    ?debugFmt("~p~n",[moser_utils:list_ej_keys(Data)]),
     Name = ej:get({<<"cookbook_name">>}, Data),
     {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
 
     Checksums = extract_all_checksums(?SEGMENTS, Data),
     ?debugFmt("~p~n", [lists:usort(Checksums)]),
 
-    BaseRecord = chef_object:new_record(chef_cookbook_version, get_org_id(Org), AId, Data),
+    BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AId, Data),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = Id},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequestorId),
     ?debugFmt("~p~n",[ObjWithDate]),
@@ -201,11 +195,6 @@ insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
 
-
-get_org_id(#org_info{org_id = OrgId}) ->
-    iolist_to_binary(OrgId).
-
-
 extract_client_key_info(Data) ->
     case ej:get({"certificate"}, Data) of
         undefined ->
@@ -216,15 +205,6 @@ extract_client_key_info(Data) ->
             {PubKey, PubKeyVersion, false, false}
     end.
 
-list_ej_keys({Ej}) ->
-    lists:sort([K || {K,_} <- Ej]).
-
-%clear_fields(Fields, Data) ->
-%    lists:foldl(fun(E,A) ->
-%                        ej:delete({E},A)
-%                end,
-%                Data,
-%                Fields).
 
 extract_all_checksums(Sections, Data) ->
     lists:flatten([ extract_checksums(ej:get({Section}, Data)) || Section <- Sections ]).
@@ -233,3 +213,5 @@ extract_checksums(undefined) ->
     [];
 extract_checksums(SegmentData) ->
     [ej:get({"checksum"}, Item) || Item <- SegmentData].
+
+

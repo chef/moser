@@ -79,6 +79,8 @@ insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
 insert_checksums(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
     RType = list_to_atom("PP_" ++ atom_to_list(Type)),
     dict:update_counter(RType, 1, Acc);
+insert_checksums(_Org, {orgname,_}, Acc) ->
+    Acc;
 insert_checksums(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.

@@ -37,6 +37,7 @@
           db_name,
           chef_ets,
           auth_ets,
+          account_info,
           start_time}).
 
 -record(account_info,

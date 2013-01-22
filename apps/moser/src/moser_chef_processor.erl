@@ -54,6 +54,7 @@ process_couch_file(OrgId) ->
                      db_name = DbName,
                      chef_ets = CData,
                      auth_ets = AData,
+                     account_info = moser_acct_processor:open_account(),
                      start_time = os:timestamp()},
     IterFn = fun(Key, Body, AccIn) ->
                      process_couch_item(Org, Key, Body),

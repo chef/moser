@@ -119,21 +119,21 @@ insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
       public_key = PubKey,
       pubkey_version = PubKeyVersion
      },
-    ObjWithDate = chef_object:set_created(Client, RequestorId),
+    ObjWithDate = chef_object:set_created(Client, RequesterId),
     chef_sql:create_client(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Data bag
 insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
     Name = ej:get({<<"name">>}, Data),
-    {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
+    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
     DataBag = #chef_data_bag{
       id = moser_utils:fix_chef_id(Id),
       authz_id = AId,
       org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name
      },
-    ObjWithDate = chef_object:set_created(DataBag, RequestorId),
+    ObjWithDate = chef_object:set_created(DataBag, RequesterId),
     chef_sql:create_data_bag(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
@@ -144,7 +144,7 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
     RawData = ej:get({<<"raw_data">>}, Data),
     DataBagName = ej:get({<<"data_bag">>}, Data),
     ItemName = ej:get({<<"name">>}, Data),
-    {_AId, RequestorId} = get_authz_info(Org, Type, DataBagName, Id),
+    {_AId, RequesterId} = get_authz_info(Org, Type, DataBagName, Id),
     SerializedObject = jiffy:encode(RawData),
     DataBagItem = #chef_data_bag_item{
       id = moser_utils:fix_chef_id(Id),
@@ -153,14 +153,14 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
       item_name = ItemName,
       serialized_object = SerializedObject
      },
-    ObjWithDate = chef_object:set_created(DataBagItem, RequestorId),
+    ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
     chef_sql:create_data_bag_item(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Role
 insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
     Name = ej:get({<<"name">>}, Data),
-    {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
+    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
     SerializedObject = jiffy:encode(Data),
     Role = #chef_role{
       id = moser_utils:fix_chef_id(Id),
@@ -169,25 +169,25 @@ insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
       name = Name,
       serialized_object = SerializedObject
      },
-    ObjWithDate = chef_object:set_created(Role, RequestorId),
+    ObjWithDate = chef_object:set_created(Role, RequesterId),
     chef_sql:create_role(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 %%
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
-    ?debugVal({Type, Id}),
-    ?debugFmt("~p~n",[moser_utils:list_ej_keys(Data)]),
+%    ?debugVal({Type, Id}),
+%    ?debugFmt("~p~n",[moser_utils:list_ej_keys(Data)]),
     Name = ej:get({<<"cookbook_name">>}, Data),
-    {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
+    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
 
-    Checksums = extract_all_checksums(?SEGMENTS, Data),
-    ?debugFmt("~p~n", [lists:usort(Checksums)]),
+    _Checksums = extract_all_checksums(?SEGMENTS, Data),
+%    ?debugFmt("~p~n", [lists:usort(Checksums)]),
 
     BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AId, Data),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = Id},
-    ObjWithDate = chef_object:set_created(CookbookVersion, RequestorId),
-    ?debugFmt("~p~n",[ObjWithDate]),
+    ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
+%    ?debugFmt("~p~n",[ObjWithDate]),
     chef_sql:create_cookbook_version(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 
@@ -227,16 +227,20 @@ extract_checksums(SegmentData) ->
     [ej:get({"checksum"}, Item) || Item <- SegmentData].
 
 
-%% This needs to look up the mixlib auth doc, find the user side id and the requestor id,
+%% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
 get_authz_info(Org, Type, Name, Id) ->
-    {UserId, RequestorId} = get_user_side_auth_id(Org,Type,Name,Id),
+    {UserId, RequesterId} = get_user_side_auth_id(Org,Type,Name,Id),
     AuthId = user_to_auth(Org, UserId),
-    {AuthId, RequestorId}.
+    {AuthId, RequesterId}.
 
 %%
-%% This needs to look up the mixlib auth doc, find the user side id and the requestor id,
+%% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
+get_user_side_auth_id(#org_info{auth_ets=Auth} = Org, cookbook_version, Name, Id) ->
+    {UserId, Data} = ets:lookup(auth_ets, {cookbook, Name}),
+    Requester = ej:get({"requester_id"}, Data),
+    {UserId, Requester};
 get_user_side_auth_id(_Org, Type, Name, Id) ->
     ?debugFmt("Can't process for type ~s, ~s ~s", [Type, Name, Id]),
     {bad_id, <<"BadId">>}.

@@ -43,33 +43,27 @@
                     <<"templates">> ]).
 
 
-%% This needs to look up the mixlib auth doc, find the user side id and the requestor id,
-%% map the user side id via opscode_account to the auth side id and return a tuple
-get_authz_info(_Org, _Type, _Name, Id) ->
-    AuthzId = moser_utils:fix_chef_id(Id),
-    %% <<AuthzId:30/binary, _Rest/binary>> = iolist_to_binary([erlang:atom_to_binary(Type, utf8), "-", Name, "-", Id]),
-    RequestorId = AuthzId,
-    {AuthzId, RequestorId}.
 
-insert(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org) ->
-    {Time0, Totals0} = timer:tc(
-                        ets, foldl, [fun(Item,Acc) ->
-                                             insert_prepass(Org, Item, Acc)
-                                     end,
-                                     dict:new(), Chef] ),
-    io:format("Stats Pass 0: ~p~n", [dict:to_list(Totals0)]),
-    {Time1, Totals1} = timer:tc(
-                        ets, foldl, [fun(Item,Acc) ->
-                                             insert_one(Org, Item, Acc)
-                                     end,
-                                     Totals0, Chef] ),
-    io:format("Stats: ~p~n", [dict:to_list(Totals1)]),
-    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (Time0+Time1)/10000000]).
+insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
+    {Time0, Totals0} = insert_checksums(Org, dict:new()),
+    {Time1, _} = insert_objects(Org, Totals0),
+    io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (Time0+Time1)/10000000]).
 
 %%
 %% Checksums need to be inserted before other things
 %%
-insert_prepass(Org, {{checksum = Type, _Name}, Data}, Acc) ->
+insert_checksums(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org, Totals) ->
+    {Time, Totals1} = timer:tc(
+                       ets, foldl, [fun(Item,Acc) ->
+                                            insert_checksums(Org, Item, Acc)
+                                    end,
+                                    Totals, Chef] ),
+    io:format("Insert Checksums Stats: ~p~n", [dict:to_list(Totals1)]),
+    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
+    {Time, Totals1}.
+
+
+insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     %%    ?debugVal({Type, Name}),
     %%    ?debugFmt("~p~n",[Data]),
     OrgId = moser_utils:get_org_id(Org),
@@ -82,20 +76,35 @@ insert_prepass(Org, {{checksum = Type, _Name}, Data}, Acc) ->
             Error
     end,
     dict:update_counter(Type, 1, Acc);
-insert_prepass(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
+insert_checksums(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
     RType = list_to_atom("PP_" ++ atom_to_list(Type)),
     dict:update_counter(RType, 1, Acc);
-insert_prepass(_Org, Item, Acc) ->
+insert_checksums(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
 
 
 %%
+%% Insert remaining objects
+%%
+insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org, Totals) ->
+    {Time, Totals1} = timer:tc(
+                       ets, foldl, [fun(Item,Acc) ->
+                                            insert_one(Org, Item, Acc)
+                                    end,
+                                    Totals, Chef] ),
+    io:format("Insert Objects Stats: ~p~n", [dict:to_list(Totals1)]),
+    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
+    {Time, Totals1}.
+
+
+%%
 %% client
 insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
-%    ?debugVal({Name, Id}),
-%    ?debugFmt("~p~n",[Data]),
-    {AId, RequestorId} = get_authz_info(Org, Type, Name, Id),
+    ?debugVal({Name, Id}),
+    ?debugFmt("~p~n",[Data]),
+    AId = user_to_auth(Org, Id), %% Clients are special; they don't contain an authz id field
+    RequestorId = AId, %% TODO: Check that this is right
     {PubKey, PubKeyVersion, IsValidator, IsAdmin} = extract_client_key_info(Data),
     Client = #chef_client{
       id = moser_utils:fix_chef_id(Id),
@@ -215,3 +224,19 @@ extract_checksums(SegmentData) ->
     [ej:get({"checksum"}, Item) || Item <- SegmentData].
 
 
+%% This needs to look up the mixlib auth doc, find the user side id and the requestor id,
+%% map the user side id via opscode_account to the auth side id and return a tuple
+get_authz_info(Org, Type, Name, Id) ->
+    {UserId, RequestorId} = get_user_side_auth_id(Org,Type,Name,Id),
+    AuthId = user_to_auth(Org, UserId),
+    {AuthId, RequestorId}.
+
+%%
+%% This needs to look up the mixlib auth doc, find the user side id and the requestor id,
+%% map the user side id via opscode_account to the auth side id and return a tuple
+get_user_side_auth_id(_Org, Type, Name, Id) ->
+    ?debugFmt("Can't process for type ~s, ~s ~s", [Type, Name, Id]),
+    {bad_id, <<"BadId">>}.
+
+user_to_auth(#org_info{account_info=Acct}, UserId) ->
+    moser_acct_processor:user_to_auth(Acct, UserId).

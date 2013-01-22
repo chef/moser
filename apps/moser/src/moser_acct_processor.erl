@@ -27,7 +27,8 @@
 -export([open_account/0,
          close_account/1,
          process_account_file/0,
-         cleanup_account_info/1
+         cleanup_account_info/1,
+         user_to_auth/2
         ]).
 
 -include("moser.hrl").
@@ -119,6 +120,9 @@ process_item_by_type(_Type, _Acct, _Key, Body) ->
     ?debugFmt("~s ~p~n", [_Type, Body]),
     ok.
 
+%%%
+%%% Simplify type names to atoms.
+%%%
 normalize_type_name(<<"AssociationRequest">>) -> association_request;
 normalize_type_name(<<"Mixlib::Authorization::AuthJoin">>) -> auth_join;
 normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> auth_container;
@@ -130,3 +134,12 @@ normalize_type_name(design_doc) -> design_doc;
 normalize_type_name(T) ->
     ?debugFmt("Unknown type ~s~n", [T]),
     unknown_type.
+
+%%%
+%%%
+%%%
+user_to_auth(_, bad_id) ->
+    <<"bad_authz_id">>;
+user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
+    [{Id,V}] = dets:lookup(U2A, Id),
+    V.

@@ -205,7 +205,7 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
 %    ?debugFmt("~p~n",[ObjWithDate]),
-%    ?debugVal(chef_sql:create_cookbook_version(ObjWithDate)),
+    chef_sql:create_cookbook_version(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 
 %%%

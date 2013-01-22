@@ -103,10 +103,11 @@ insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org,
 %%
 %% client
 insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
-    ?debugVal({Name, Id}),
-    ?debugFmt("~p~n",[Data]),
-    AId = user_to_auth(Org, Id), %% Clients are special; they don't contain an authz id field
-    RequestorId = AId, %% TODO: Check that this is right
+%%    ?debugVal({Name, Id}),
+%%    ?debugFmt("~p~n",[Data]),
+    AId = user_to_auth(Org, Id), %% Clients are special; they don't contain an authz id field, but their Id is the user side id
+    RequesterId = AId, %% TODO: Check that this is right
+%%    ?debugVal(AId),
     {PubKey, PubKeyVersion, IsValidator, IsAdmin} = extract_client_key_info(Data),
     Client = #chef_client{
       id = moser_utils:fix_chef_id(Id),

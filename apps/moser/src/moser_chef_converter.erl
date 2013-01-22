@@ -77,9 +77,9 @@ insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     end,
     dict:update_counter(Type, 1, Acc);
 insert_checksums(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
-%    RType = list_to_atom("SKIP_CK_" ++ atom_to_list(_Type)),
-%    dict:update_counter(RType, 1, Acc);
-    Acc;
+    RType = list_to_atom("SKIP_CK_" ++ atom_to_list(_Type)),
+    dict:update_counter(RType, 1, Acc);
+%    Acc;
 insert_checksums(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_checksums(_Org, Item, Acc) ->
@@ -202,10 +202,10 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
 %    ?debugFmt("~p~n", [lists:usort(Checksums)]),
 
     BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AId, Data),
-    CookbookVersion = BaseRecord#chef_cookbook_version{id = Id},
+    CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
 %    ?debugFmt("~p~n",[ObjWithDate]),
-    chef_sql:create_cookbook_version(ObjWithDate),
+%    ?debugVal(chef_sql:create_cookbook_version(ObjWithDate)),
     dict:update_counter(Type, 1, Acc);
 
 %%%
@@ -217,9 +217,9 @@ insert_one(_Org, {{checksum, _Id}, _}, Acc) ->
 %% Unhandled objects
 %%
 insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
-%%    RType = list_to_atom("SKIP_P2_" ++ atom_to_list(Type)),
-%%    dict:update_counter(RType, 1, Acc);
-    Acc;
+    RType = list_to_atom("SKIP_P2_" ++ atom_to_list(Type)),
+    dict:update_counter(RType, 1, Acc);
+%    Acc;
 insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.

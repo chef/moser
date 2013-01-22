@@ -237,13 +237,24 @@ get_authz_info(Org, Type, Name, Id) ->
 %%
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
-get_user_side_auth_id(#org_info{auth_ets=Auth} = Org, cookbook_version, Name, Id) ->
-    {UserId, Data} = ets:lookup(auth_ets, {cookbook, Name}),
+get_user_side_auth_id(#org_info{auth_ets=Auth}, cookbook_version, Name, _Id) ->
+    [{_, {UserId, Data}}] = ets:lookup(Auth, {cookbook, Name}),
     Requester = ej:get({"requester_id"}, Data),
     {UserId, Requester};
+get_user_side_auth_id(#org_info{auth_ets=Auth}, databag_item, Name, _Id) ->
+    get_user_side_auth_id_generic(Auth, databag, Name);
+get_user_side_auth_id(#org_info{auth_ets=Auth}, databag, Name, _Id) ->
+    get_user_side_auth_id_generic(Auth, databag, Name);
+get_user_side_auth_id(#org_info{auth_ets=Auth}, role, Name, _Id) ->
+    get_user_side_auth_id_generic(Auth, role, Name);
 get_user_side_auth_id(_Org, Type, Name, Id) ->
     ?debugFmt("Can't process for type ~s, ~s ~s", [Type, Name, Id]),
     {bad_id, <<"BadId">>}.
+
+get_user_side_auth_id_generic(Auth, Type, Name) ->
+    [{_, {UserId, Data}}] = ets:lookup(Auth, {Type, Name}),
+    Requester = ej:get({"requester_id"}, Data),
+    {UserId, Requester}.
 
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).

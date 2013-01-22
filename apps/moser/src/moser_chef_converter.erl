@@ -58,7 +58,7 @@ insert_checksums(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Or
                                             insert_checksums(Org, Item, Acc)
                                     end,
                                     Totals, Chef] ),
-    io:format("Insert Checksums Stats: ~p~n", [dict:to_list(Totals1)]),
+    io:format("Insert Checksums Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
     io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
     {Time, Totals1}.
 
@@ -76,9 +76,10 @@ insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
             Error
     end,
     dict:update_counter(Type, 1, Acc);
-insert_checksums(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
-    RType = list_to_atom("PP_" ++ atom_to_list(Type)),
-    dict:update_counter(RType, 1, Acc);
+insert_checksums(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
+%    RType = list_to_atom("SKIP_CK_" ++ atom_to_list(_Type)),
+%    dict:update_counter(RType, 1, Acc);
+    Acc;
 insert_checksums(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_checksums(_Org, Item, Acc) ->
@@ -95,7 +96,7 @@ insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org,
                                             insert_one(Org, Item, Acc)
                                     end,
                                     Totals, Chef] ),
-    io:format("Insert Objects Stats: ~p~n", [dict:to_list(Totals1)]),
+    io:format("Insert Objects Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
     io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
     {Time, Totals1}.
 
@@ -173,6 +174,22 @@ insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
     chef_sql:create_role(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
+%% Environments
+insert_one(Org, {{environment = Type, Id}, Data}, Acc) ->
+    Name = ej:get({<<"name">>}, Data),
+    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
+    SerializedObject = jiffy:encode(Data),
+    Role = #chef_environment{
+      id = moser_utils:fix_chef_id(Id),
+      authz_id = AId,
+      org_id = moser_utils:get_org_id(Org),
+      name = Name,
+      serialized_object = SerializedObject
+     },
+    ObjWithDate = chef_object:set_created(Role, RequesterId),
+    chef_sql:create_environment(ObjWithDate),
+    dict:update_counter(Type, 1, Acc);
+%%
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 %%
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
@@ -200,9 +217,9 @@ insert_one(_Org, {{checksum, _Id}, _}, Acc) ->
 %% Unhandled objects
 %%
 insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
-    RType = list_to_atom("TODO_" ++ atom_to_list(Type)),
-    dict:update_counter(RType, 1, Acc);
-    %Acc;
+%%    RType = list_to_atom("SKIP_P2_" ++ atom_to_list(Type)),
+%%    dict:update_counter(RType, 1, Acc);
+    Acc;
 insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
@@ -247,9 +264,12 @@ get_user_side_auth_id(#org_info{auth_ets=Auth}, databag, Name, _Id) ->
     get_user_side_auth_id_generic(Auth, databag, Name);
 get_user_side_auth_id(#org_info{auth_ets=Auth}, role, Name, _Id) ->
     get_user_side_auth_id_generic(Auth, role, Name);
+get_user_side_auth_id(#org_info{auth_ets=Auth}, environment = Type, Name, _Id) ->
+    get_user_side_auth_id_generic(Auth, Type, Name);
 get_user_side_auth_id(_Org, Type, Name, Id) ->
     ?debugFmt("Can't process for type ~s, ~s ~s", [Type, Name, Id]),
     {bad_id, <<"BadId">>}.
+
 
 get_user_side_auth_id_generic(Auth, Type, Name) ->
     [{_, {UserId, Data}}] = ets:lookup(Auth, {Type, Name}),

@@ -72,7 +72,7 @@ insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     case sqerl:statement(insert_checksum, [OrgId, Checksum], count) of
         {ok, 1} ->
             ok;
-        Error ->
+        Error -> %% TODO check errors better here
             Error
     end,
     dict:update_counter(Type, 1, Acc);
@@ -121,7 +121,7 @@ insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
       pubkey_version = PubKeyVersion
      },
     ObjWithDate = chef_object:set_created(Client, RequesterId),
-    chef_sql:create_client(ObjWithDate),
+    {ok, 1} = chef_sql:create_client(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Data bag
@@ -135,7 +135,7 @@ insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
       name = Name
      },
     ObjWithDate = chef_object:set_created(DataBag, RequesterId),
-    chef_sql:create_data_bag(ObjWithDate),
+    {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Data bag item
@@ -155,7 +155,7 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
       serialized_object = SerializedObject
      },
     ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
-    chef_sql:create_data_bag_item(ObjWithDate),
+    {ok, 1} =  chef_sql:create_data_bag_item(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Role
@@ -171,7 +171,7 @@ insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
       serialized_object = SerializedObject
      },
     ObjWithDate = chef_object:set_created(Role, RequesterId),
-    chef_sql:create_role(ObjWithDate),
+    {ok, 1} = chef_sql:create_role(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Environments
@@ -187,7 +187,7 @@ insert_one(Org, {{environment = Type, Id}, Data}, Acc) ->
       serialized_object = SerializedObject
      },
     ObjWithDate = chef_object:set_created(Role, RequesterId),
-    chef_sql:create_environment(ObjWithDate),
+    {ok, 1} = chef_sql:create_environment(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
@@ -205,7 +205,7 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
 %    ?debugFmt("~p~n",[ObjWithDate]),
-    chef_sql:create_cookbook_version(ObjWithDate),
+    {ok, 1} = chef_sql:create_cookbook_version(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 
 %%%

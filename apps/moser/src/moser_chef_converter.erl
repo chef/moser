@@ -46,8 +46,9 @@
 
 insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     {Time0, Totals0} = insert_checksums(Org, dict:new()),
-    {Time1, _} = insert_objects(Org, Totals0),
-    io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (Time0+Time1)/10000000]).
+    {Time1, Totals1} = insert_databags(Org, Totals0),
+    {Time2, _} = insert_objects(Org, Totals1),
+    io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (Time0+Time1+Time2)/10000000]).
 
 %%
 %% Checksums need to be inserted before other things
@@ -83,6 +84,32 @@ insert_checksums(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 insert_checksums(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_checksums(_Org, Item, Acc) ->
+    ?debugVal(Item),
+    Acc.
+
+%%
+%% Databags need to be inserted before other things
+%%
+insert_databags(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org, Totals) ->
+    {Time, Totals1} = timer:tc(
+                       ets, foldl, [fun(Item,Acc) ->
+                                            insert_databag(Org, Item, Acc)
+                                    end,
+                                    Totals, Chef] ),
+    io:format("Insert Databags Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
+    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
+    {Time, Totals1}.
+
+insert_databag(Org, {{databag, Id}, Data}, Acc) ->
+    InsertedType = process_databag(Org, Id, Data),
+    dict:update_counter(InsertedType, 1, Acc);
+insert_databag(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
+    RType = list_to_atom("SKIP_DB_" ++ atom_to_list(_Type)),
+    dict:update_counter(RType, 1, Acc);
+%    Acc;
+insert_databag(_Org, {orgname,_}, Acc) ->
+    Acc;
+insert_databag(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
 
@@ -124,20 +151,6 @@ insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
     {ok, 1} = chef_sql:create_client(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %%
-%% Data bag
-insert_one(Org, {{databag = Type, Id}, Data}, Acc) ->
-    Name = ej:get({<<"name">>}, Data),
-    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
-    DataBag = #chef_data_bag{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AId,
-      org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name
-     },
-    ObjWithDate = chef_object:set_created(DataBag, RequesterId),
-    {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
-    dict:update_counter(Type, 1, Acc);
-%%
 %% Data bag item
 insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
     %%    ?debugVal({Type, Id}),
@@ -155,7 +168,14 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
       serialized_object = SerializedObject
      },
     ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
-    {ok, 1} =  chef_sql:create_data_bag_item(ObjWithDate),
+    case chef_sql:create_data_bag_item(ObjWithDate) of
+        {ok, 1} ->
+            ok;
+        {foreign_key, Msg} ->
+            ?debugFmt("Error inserting ~s, ~s ~n~p~n", [Type, Msg, ObjWithDate]);
+        {conflict, Msg} ->
+            ?debugFmt("Error inserting ~s, ~s ~n~p~n", [Type, Msg, ObjWithDate])
+    end,
     dict:update_counter(Type, 1, Acc);
 %%
 %% Role
@@ -224,6 +244,27 @@ insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
 
+
+%%
+%% Data bag insertion
+%%
+process_databag(Org, Id, Data) ->
+    Name = ej:get({<<"name">>}, Data),
+    {AId, RequesterId} = get_authz_info(Org, databag, Name, Id),
+    DataBag = #chef_data_bag{
+      id = moser_utils:fix_chef_id(Id),
+      authz_id = AId,
+      org_id = iolist_to_binary(Org#org_info.org_id),
+      name = Name
+     },
+    ObjWithDate = chef_object:set_created(DataBag, RequesterId),
+    {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
+    databag.
+
+
+%%
+%% Utility routines
+%%
 extract_client_key_info(Data) ->
     case ej:get({"certificate"}, Data) of
         undefined ->
@@ -278,3 +319,24 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
 
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).
+
+cleanup_org(#org_info{org_id = _OrgId}) ->
+    foo.
+
+cleanup_all() ->
+    Query =
+        <<"delete from cookbook_version_checksums;" %% cookbook_version_checksums, checksums,
+          "delete from checksums;"            %% cookbook_versions, and cookbooks
+          "delete from cookbook_versions;"
+          "delete from cookbooks;"
+          "delete from environments;"
+          "delete from roles;"
+          "delete from clients;"
+          "delete from data_bags;"
+          "delete from data_bag_items;">>,
+    case sqerl:execute(Query) of
+        {ok, X} ->
+            ?debugVal(X);
+        {error, Error} ->
+            ?debugFmt("Cleanup error ~p", [Error])
+    end.

@@ -26,8 +26,10 @@
 %% API
 -export([cleanup_org_info/1,
          extract_type/2,
-         get_couch_path/0,
-         process_couch_file/1
+         process_couch_file/1,
+         process_couch_file/2,
+         process_couch_orgid/1,
+         get_orgid_from_dbname/1
         ]).
 
 -include("moser.hrl").
@@ -37,17 +39,28 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-get_couch_path() ->
-    envy:get(moser, couch_path,
-             "/srv/piab/mounts/moser/", %% TODO make default for private chef or something...
-             string).
 
+get_orgid_from_dbname(DbName) ->
+    {match, [OrgId]} = re:run(DbName, ".*chef_([[:xdigit:]]*).couch", [{capture, all_but_first, binary}]),
+    OrgId.
 
-process_couch_file(OrgId) ->
+process_couch_orgid(OrgId) ->
+    DbName = lists:flatten([moser_converter:get_couch_path(), "/chef_", OrgId, ".couch"]),
+    process_couch_file(DbName, OrgId).
+
+process_couch_file(DbName) ->
+    OrgId = get_orgid_from_dbname(DbName),
+
+    case filelib:is_file(DbName) of
+        false ->
+            ?debugFmt("Can't open file ~s", [DbName]);
+        true ->
+            process_couch_file(DbName, OrgId)
+    end.
+
+process_couch_file(DbName, OrgId) ->
     CData = ets:new(chef_data, [set,public]),
     AData = ets:new(auth_data, [set,public]),
-
-    DbName = lists:flatten([get_couch_path(), "chef_", OrgId, ".couch"]),
 
     Org = #org_info{ org_name = "TBD",
                      org_id = OrgId,

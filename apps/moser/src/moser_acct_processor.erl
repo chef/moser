@@ -119,6 +119,10 @@ process_item_by_type(org_user,
                      #account_info{db=Db}, Key, Body) ->
     dets:insert(Db, {{org_user, Key}, Body}),
     ok;
+process_item_by_type(design_doc,
+                     #account_info{db=Db}, Key, Body) ->
+    dets:insert(Db, {{org_user, Key}, Body}),
+    ok;
 %%
 %% Catch all
 %%

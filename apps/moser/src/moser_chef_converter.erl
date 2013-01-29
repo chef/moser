@@ -24,7 +24,9 @@
 -module(moser_chef_converter).
 
 %% API
--export([insert/1]).
+-export([insert/1,
+         cleanup_org/1,
+         cleanup_all/0]).
 
 -include("moser.hrl").
 

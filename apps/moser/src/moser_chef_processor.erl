@@ -45,7 +45,8 @@ get_orgid_from_dbname(DbName) ->
     OrgId.
 
 process_couch_orgid(OrgId) ->
-    DbName = lists:flatten([moser_converter:get_couch_path(), "/chef_", OrgId, ".couch"]),
+    FileName = lists:flatten(["chef_", OrgId, ".couch"]),
+    DbName = filename:join([moser_converter:get_couch_path(),FileName]),
     process_couch_file(DbName, OrgId).
 
 process_couch_file(DbName) ->

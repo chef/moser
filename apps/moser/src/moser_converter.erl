@@ -42,7 +42,7 @@ get_couch_path() ->
 
 get_chef_list() ->
     Path = get_couch_path(),
-    DbPattern = lists:flatten([Path, "chef_*.couch"]),
+    DbPattern = filename:join([Path, "chef_*.couch"]),
     filelib:wildcard(DbPattern).
 
 process_file_list(FileList) ->

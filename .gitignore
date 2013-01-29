@@ -1,4 +1,5 @@
 ebin/*
+apps/moser/ebin
 *.beam
 deps/*
 rel/moser
@@ -6,3 +7,4 @@ rel/moser
 *~
 .plt
 *.couch
+.eunit

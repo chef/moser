@@ -50,7 +50,9 @@ insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     {Time0, Totals0} = insert_checksums(Org, dict:new()),
     {Time1, Totals1} = insert_databags(Org, Totals0),
     {Time2, _} = insert_objects(Org, Totals1),
-    io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (Time0+Time1+Time2)/10000000]).
+    TotalTime = Time0 + Time1 + Time2,
+    io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (TotalTime)/10000000]),
+    TotalTime.
 
 %%
 %% Checksums need to be inserted before other things

@@ -24,9 +24,10 @@
 -module(moser_converter).
 
 %% API
--export([get_chef_list/0, 
+-export([get_chef_list/0,
          process_file_list/1,
-         get_couch_path/0]).
+         process_insert_file/1,
+get_couch_path/0]).
 
 -include("moser.hrl").
 
@@ -50,5 +51,11 @@ process_file_list(FileList) ->
 
 process_insert_file(File) ->
     Db = moser_chef_processor:process_couch_file(File),
-    moser_chef_converter:insert(Db),
-    moser_chef_processor:cleanup_org_info(Db).
+    try
+        moser_chef_converter:insert(Db)
+    catch
+        error:E ->
+            {error, E}
+    after
+        moser_chef_processor:cleanup_org_info(Db)
+    end.

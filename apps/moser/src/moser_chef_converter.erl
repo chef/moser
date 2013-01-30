@@ -315,11 +315,16 @@ get_user_side_auth_id(_Org, Type, Name, Id) ->
     ?debugFmt("Can't process for type ~s, ~s ~s", [Type, Name, Id]),
     {bad_id, <<"BadId">>}.
 
-
 get_user_side_auth_id_generic(Auth, Type, Name) ->
-    [{_, {UserId, Data}}] = ets:lookup(Auth, {Type, Name}),
-    Requester = ej:get({"requester_id"}, Data),
-    {UserId, Requester}.
+    case ets:lookup(Auth, {Type, Name}) of
+        [{_, {UserId, Data}}] -> 
+            Requester = ej:get({"requester_id"}, Data),
+            {UserId, Requester};
+        [] ->
+            %% TODO: Fix this to hard fail on error,
+            ?debugFmt("Can't find auth info for ~s, ~s~n", [Type, Name]),
+            {<<"DEADBEEF">>, <<"DEADD0G">>}
+    end.
 
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).

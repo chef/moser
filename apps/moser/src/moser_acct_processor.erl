@@ -64,7 +64,7 @@ close_account(#account_info{user_to_authz = U2A,
 
 process_account_file() ->
     Account = open_account(),
-    DbName = lists:flatten([moser_chef_processor:get_couch_path(), "opscode_account.couch"]),
+    DbName = lists:flatten([moser_converter:get_couch_path(), "opscode_account.couch"]),
 
     IterFn = fun(Key, Body, AccIn) ->
                      process_account_item(Account, Key, Body),

@@ -3,7 +3,7 @@
 erchef couch migration tool
 
 This tool migrates data from the couchdb data schema used by various
-versions of chef to the sql schema used by chef. 
+versions of chef to the sql schema used by chef.
 
 This is named in honor of Leo Moser who first formulated the moving
 sofa problem. [http://en.wikipedia.org/wiki/Moving_sofa_problem]
@@ -21,7 +21,7 @@ Copyright (c) 2012 Opscode, Inc.  All rights reserved.
 ## Usage ##
 
 Build in dev-vm with
-    sudo make relclean rel 
+    sudo make relclean rel
 
 Verify that you are using the right database and service in rel/moser/etc/app.confing
     * Specifically, pgsql service, port and password,
@@ -30,20 +30,31 @@ Verify that you are using the right database and service in rel/moser/etc/app.co
 Run in console with
     sudo rel/moser/bin/moser console
 
+First things first, load the opscode_account database into DETS tables:
 
-If you have a db, say 'chef_3f0cbfe0b0c0474d9ac86a8fd51d6a30.couch' 
-    f(Db), Db = moser_chef_processor:process_couch_file("3f0cbfe0b0c0474d9ac86a8fd51d6a30"). 
+```
+moser_acct_processor:process_account_file().
+```
 
-Will return an org_info record for that db:
+If you have a couch database file, say "chef_3f0cbfe0b0c0474d9ac86a8fd51d6a30.couch" The organization id (orgid) will be "3f0cbfe0b0c0474d9ac86a8fd51d6a30".
 
+```
+f(Db), Db = moser_chef_processor:process_couch_orgid("3f0cbfe0b0c0474d9ac86a8fd51d6a30").
+```
+
+Will return an org_info record for that :
+
+```
 {org_info,<<"recordedfuture">>,
           "3f0cbfe0b0c0474d9ac86a8fd51d6a30",
           "/srv/piab/mounts/moser/chef_3f0cbfe0b0c0474d9ac86a8fd51d6a30.couch",
           65569,69666,
           {account_info,user_to_authz,authz_to_user,account_db},
           {1358,878871,354636}}
+```
 
 To do the db insert:
 
-    moser_chef_converter:insert(Db).
-
+```
+moser_chef_converter:insert(Db).
+```

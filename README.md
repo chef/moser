@@ -21,29 +21,30 @@ Copyright (c) 2012 Opscode, Inc.  All rights reserved.
 ## Usage ##
 
 Build in dev-vm with
-    sudo make relclean rel
+```
+sudo make relclean rel
+```
 
 Verify that you are using the right database and service in rel/moser/etc/app.confing
-    * Specifically, pgsql service, port and password,
-    * db_name should be opscode_chef_test for early testing
+* Specifically, pgsql service, port and password,
+* db_name should be opscode_chef_test for early testing
 
 Run in console with
-    sudo rel/moser/bin/moser console
+```
+sudo rel/moser/bin/moser console
+```
 
 First things first, load the opscode_account database into DETS tables:
-
 ```
 moser_acct_processor:process_account_file().
 ```
 
-If you have a couch database file, say "chef_3f0cbfe0b0c0474d9ac86a8fd51d6a30.couch" The organization id (orgid) will be "3f0cbfe0b0c0474d9ac86a8fd51d6a30".
-
+If you have a couch database file, say `chef_3f0cbfe0b0c0474d9ac86a8fd51d6a30.couch` the organization id (orgid) will be `3f0cbfe0b0c0474d9ac86a8fd51d6a30`.
 ```
 f(Db), Db = moser_chef_processor:process_couch_orgid("3f0cbfe0b0c0474d9ac86a8fd51d6a30").
 ```
 
 Will return an org_info record for that :
-
 ```
 {org_info,<<"recordedfuture">>,
           "3f0cbfe0b0c0474d9ac86a8fd51d6a30",
@@ -54,7 +55,6 @@ Will return an org_info record for that :
 ```
 
 To do the db insert:
-
 ```
 moser_chef_converter:insert(Db).
 ```

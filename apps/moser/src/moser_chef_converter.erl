@@ -166,7 +166,7 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
     %%    ?debugFmt("~p~n",[Data]),
     RawData = ej:get({<<"raw_data">>}, Data),
     DataBagName = ej:get({<<"data_bag">>}, Data),
-    ItemName = ej:get({<<"name">>}, Data),
+    ItemName = ej:get({<<"raw_data">>,<<"id">>}, Data),
     {_AId, RequesterId} = get_authz_info(Org, Type, DataBagName, Id),
     SerializedObject = jiffy:encode(RawData),
     DataBagItem = #chef_data_bag_item{

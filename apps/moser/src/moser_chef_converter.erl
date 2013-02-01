@@ -44,7 +44,17 @@
                     <<"root_files">>,
                     <<"templates">> ]).
 
-
+%% Order is important because of foreign key constraints on
+%% cookbook_version_checksums, checksums, cookbook_versions, and cookbooks
+-define(SQL_TABLES, ["cookbook_version_checksums",
+                     "checksums",
+                     "cookbook_versions",
+                     "cookbooks",
+                     "environments",
+                     "roles",
+                     "clients",
+                     "data_bags",
+                     "data_bag_items"]).
 
 insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     try
@@ -322,7 +332,7 @@ get_user_side_auth_id(_Org, Type, Name, Id) ->
 
 get_user_side_auth_id_generic(Auth, Type, Name) ->
     case ets:lookup(Auth, {Type, Name}) of
-        [{_, {UserId, Data}}] -> 
+        [{_, {UserId, Data}}] ->
             Requester = ej:get({"requester_id"}, Data),
             {UserId, Requester};
         [] ->
@@ -334,23 +344,18 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).
 
-cleanup_org(#org_info{org_id = _OrgId}) ->
-    foo.
+sqerl_delete_helper(Query, Where) ->
+    case sqerl:adhoc_delete(Query, Where) of
+        {ok, X} ->
+            {ok, X};
+        {error, Error} ->
+            ?debugFmt("Cleanup error ~p ~p ~p", [Error, Query, Where]),
+            {error, Error}
+    end.
+
+cleanup_org(OrgId) ->
+    [ sqerl_delete_helper(Q, {"org_id", equals, OrgId}) || Q <- ?SQL_TABLES ].
 
 cleanup_all() ->
-    Query =
-        <<"delete from cookbook_version_checksums;" %% cookbook_version_checksums, checksums,
-          "delete from checksums;"            %% cookbook_versions, and cookbooks
-          "delete from cookbook_versions;"
-          "delete from cookbooks;"
-          "delete from environments;"
-          "delete from roles;"
-          "delete from clients;"
-          "delete from data_bags;"
-          "delete from data_bag_items;">>,
-    case sqerl:execute(Query) of
-        {ok, X} ->
-            ?debugVal(X);
-        {error, Error} ->
-            ?debugFmt("Cleanup error ~p", [Error])
-    end.
+    [ sqerl_delete_helper(Q, all) || Q <- ?SQL_TABLES ].
+

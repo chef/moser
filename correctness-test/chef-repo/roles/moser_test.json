@@ -1,0 +1,14 @@
+{
+    "name": "moser_test",
+    "description": "The basic role for running moser correctness tests",
+    "override_attributes": {},
+    "default_attributes": {},
+    "json_class": "Chef::Role",
+    "run_list": [
+	"recipe[apt]",
+	"recipe[users]",
+	"recipe[moser_test]"
+    ],
+    "env_run_lists": {},
+    "chef_type": "role"
+}

@@ -1,0 +1,8 @@
+{
+    "comment": "Thomas Moser",
+    "groups": "sysadmin",
+    "id": "moser",
+    "uid": 7001,
+    "shell": "/bin/bash",
+    "ssh_keys": ""
+}

@@ -39,18 +39,18 @@ First things first, load the opscode_account database into DETS tables:
 moser_acct_processor:process_account_file().
 ```
 
-If you have a couch database file, say `chef_3f0cbfe0b0c0474d9ac86a8fd51d6a30.couch` the organization id (orgid) will be `3f0cbfe0b0c0474d9ac86a8fd51d6a30`.
+The next step is to process the organization database into an ETS table:
 ```
-f(Db), Db = moser_chef_processor:process_couch_orgid("3f0cbfe0b0c0474d9ac86a8fd51d6a30").
+f(Db), Db = moser_chef_processor:process_couch_orgname("ponyville").
 ```
 
 Will return an org_info record for that :
 ```
-{org_info,<<"recordedfuture">>,
+{org_info,<<"ponyville">>,
           "3f0cbfe0b0c0474d9ac86a8fd51d6a30",
           "/srv/piab/mounts/moser/chef_3f0cbfe0b0c0474d9ac86a8fd51d6a30.couch",
           65569,69666,
-          {account_info,user_to_authz,authz_to_user,account_db},
+          {user_to_authz,orgname_to_guid,authz_to_user,account_db},
           {1358,878871,354636}}
 ```
 

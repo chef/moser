@@ -41,7 +41,7 @@ moser_acct_processor:process_account_file().
 
 The next step is to process the organization database into an ETS table:
 ```
-f(Db), Db = moser_chef_processor:process_couch_orgname("ponyville").
+f(Db), Db = moser_chef_processor:process_organization("ponyville").
 ```
 
 Will return an org_info record for that :

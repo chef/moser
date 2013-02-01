@@ -29,6 +29,7 @@
          process_couch_file/1,
          process_couch_file/2,
          process_couch_orgid/1,
+         process_couch_orgname/1,
          get_orgid_from_dbname/1
         ]).
 
@@ -43,6 +44,12 @@
 get_orgid_from_dbname(DbName) ->
     {match, [OrgId]} = re:run(DbName, ".*chef_([[:xdigit:]]*).couch", [{capture, all_but_first, binary}]),
     OrgId.
+
+process_couch_orgname(OrgName) ->
+    BinaryOrgName = list_to_binary(OrgName),
+    [{BinaryOrgName, BinaryGuid}] = dets:lookup(orgname_to_guid, BinaryOrgName),
+    Guid = binary_to_list(BinaryGuid),
+    process_couch_orgid(Guid).
 
 process_couch_orgid(OrgId) ->
     FileName = lists:flatten(["chef_", OrgId, ".couch"]),

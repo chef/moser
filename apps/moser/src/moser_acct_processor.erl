@@ -48,18 +48,22 @@ dets_open_file(Name) ->
 open_account() ->
     {ok, U2A} = dets_open_file(user_to_authz),
     {ok, A2U} = dets_open_file(authz_to_user),
+    {ok, O2G} = dets_open_file(orgname_to_guid),
     {ok, Db}  = dets_open_file(account_db),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,
+                   orgname_to_guid = O2G,
                    db = Db
                  }.
 
 close_account(#account_info{user_to_authz = U2A,
                             authz_to_user = A2U,
+                            orgname_to_guid = O2G,
                             db = Db}) ->
     dets:close(U2A),
     dets:close(A2U),
+    dets:close(O2G),
     dets:close(Db).
 
 process_account_file() ->
@@ -75,9 +79,11 @@ process_account_file() ->
 
 cleanup_account_info(#account_info{user_to_authz = U2A,
                                    authz_to_user = A2U,
+                                   orgname_to_guid = O2G,
                                    db = Db}) ->
     dets:delete(U2A),
     dets:delete(A2U),
+    dets:delete(O2G),
     dets:delete(Db).
 
 process_account_item(Account, Key, Body) ->
@@ -104,8 +110,11 @@ process_item_by_type(auth_join,
     dets:insert(Auth2User, {AuthId, UserId}),
     ok;
 process_item_by_type(auth_org,
-                     #account_info{db=Db}, Key, Body) ->
-    dets:insert(Db, {{auth_org, Key}, Body}),
+                     #account_info{orgname_to_guid=OrgName2Guid},
+                     _Key, Body) ->
+    OrgName = ej:get({<<"name">>}, Body),
+    Guid = ej:get({<<"guid">>}, Body),
+    dets:insert(OrgName2Guid, {OrgName, Guid}),
     ok;
 process_item_by_type(auth_user,
                      #account_info{db=Db}, Key, Body) ->

@@ -43,5 +43,6 @@
 -record(account_info,
         { user_to_authz,
           authz_to_user,
+          orgname_to_guid,
           db
         }).

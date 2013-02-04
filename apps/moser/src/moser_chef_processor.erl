@@ -46,10 +46,7 @@ get_orgid_from_dbname(DbName) ->
     OrgId.
 
 process_organization(OrgName) ->
-    BinaryOrgName = iolist_to_binary(OrgName),
-    [{BinaryOrgName, BinaryGuid}] = dets:lookup(orgname_to_guid, BinaryOrgName),
-    Guid = binary_to_list(BinaryGuid),
-    process_couch_orgid(Guid).
+    process_couch_orgid(moser_utils:orgname_to_guid(OrgName)).
 
 process_couch_orgid(OrgId) ->
     FileName = lists:flatten(["chef_", OrgId, ".couch"]),

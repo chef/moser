@@ -25,7 +25,8 @@
 
 %% API
 -export([insert/1,
-         cleanup_org/1,
+         cleanup_organization/1,
+         cleanup_orgid/1,
          cleanup_all/0]).
 
 -include("moser.hrl").
@@ -367,7 +368,10 @@ delete_table_for_org("cookbook_versions", OrgId) ->
 delete_table_for_org(Table,OrgId) ->
     sqerl_delete_helper(Table, {"org_id", equals, OrgId}).
 
-cleanup_org(OrgId) ->
+cleanup_organization(OrgName) ->
+    cleanup_orgid(moser_utils:orgname_to_guid(OrgName)).
+
+cleanup_orgid(OrgId) ->
     [ delete_table_for_org(Table, OrgId) || Table <- ?SQL_TABLES ].
 
 cleanup_all() ->

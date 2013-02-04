@@ -54,8 +54,8 @@
                      "environments",
                      "roles",
                      "clients",
-                     "data_bags",
-                     "data_bag_items"]).
+                     "data_bag_items",
+                     "data_bags"]).
 
 insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     try

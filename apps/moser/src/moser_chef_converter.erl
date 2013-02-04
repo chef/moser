@@ -354,10 +354,9 @@ sqerl_delete_helper(Table, Where) ->
     end.
 
 delete_table_for_org("cookbook_versions", OrgId) ->
-    StmtList = lists:concat(["delete from cookbook_versions using cookbooks ",
+    Stmt = iolist_to_binary(["delete from cookbook_versions using cookbooks ",
                              "where cookbook_id = cookbooks.id and cookbooks.org_id = '",
                              OrgId, "';"]),
-    Stmt = list_to_binary(StmtList),
     case sqerl:execute(Stmt) of
         {ok, X} ->
             {ok, "cookbook_versions", X};

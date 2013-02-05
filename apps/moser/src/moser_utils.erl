@@ -24,8 +24,11 @@
 -module(moser_utils).
 
 %% API
--export([fix_chef_id/1,
+-export([
+         fix_chef_id/1,
          get_org_id/1,
+         get_orgid_from_dbname/1,
+         get_dbname_from_orgid/1,
          list_ej_keys/1,
          orgname_to_guid/1
         ]).
@@ -46,13 +49,15 @@ orgname_to_guid(OrgName) ->
     [{BinaryOrgName, BinaryGuid}] = dets:lookup(orgname_to_guid, BinaryOrgName),
     binary_to_list(BinaryGuid).
 
+get_orgid_from_dbname(DbName) ->
+    {match, [OrgId]} = re:run(DbName, ".*chef_([[:xdigit:]]*).couch", [{capture, all_but_first, binary}]),
+    OrgId.
+
+get_dbname_from_orgid(OrgId) ->
+    FileName = lists:flatten(["chef_", OrgId, ".couch"]),
+    filename:join([moser_converter:get_couch_path(),FileName]).
+
 list_ej_keys({Ej}) ->
     lists:sort([K || {K,_} <- Ej]).
 
-%clear_fields(Fields, Data) ->
-%    lists:foldl(fun(E,A) ->
-%                        ej:delete({E},A)
-%                end,
-%                Data,
-%                Fields).
 

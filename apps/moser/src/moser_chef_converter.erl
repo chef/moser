@@ -79,7 +79,7 @@ insert_checksums(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Or
                                             insert_checksums(Org, Item, Acc)
                                     end,
                                     Totals, Chef] ),
-    io:format("Insert Checksums Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
+%%    io:format("Insert Checksums Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
     io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
     {Time, Totals1}.
 
@@ -98,9 +98,9 @@ insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     end,
     dict:update_counter(Type, 1, Acc);
 insert_checksums(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
-    RType = list_to_atom("SKIP_CK_" ++ atom_to_list(_Type)),
-    dict:update_counter(RType, 1, Acc);
-%    Acc;
+%%    RType = list_to_atom("SKIP_CK_" ++ atom_to_list(_Type)),
+%%    dict:update_counter(RType, 1, Acc);
+    Acc;
 insert_checksums(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_checksums(_Org, Item, Acc) ->
@@ -116,7 +116,7 @@ insert_databags(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org
                                             insert_databag(Org, Item, Acc)
                                     end,
                                     Totals, Chef] ),
-    io:format("Insert Databags Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
+%%    io:format("Insert Databags Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
     io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
     {Time, Totals1}.
 
@@ -124,9 +124,9 @@ insert_databag(Org, {{databag, Id}, Data}, Acc) ->
     InsertedType = process_databag(Org, Id, Data),
     dict:update_counter(InsertedType, 1, Acc);
 insert_databag(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
-    RType = list_to_atom("SKIP_DB_" ++ atom_to_list(_Type)),
-    dict:update_counter(RType, 1, Acc);
-%    Acc;
+%%    RType = list_to_atom("SKIP_DB_" ++ atom_to_list(_Type)),
+%%    dict:update_counter(RType, 1, Acc);
+    Acc;
 insert_databag(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_databag(_Org, Item, Acc) ->

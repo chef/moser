@@ -247,11 +247,22 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
 %    ?debugFmt("~p~n",[ObjWithDate]),
     {ok, 1} = chef_sql:create_cookbook_version(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-
+%%
+%% Old style cookbooks
+%% These use the "Cookbook" chef_type. As best we can tell, this isn't used anywhere in the OHC code.
+%% May want a final check with Adam and CB to make sure there isn't some secret stuff, but it appears
+%% we can ignore them for now.
+%%
+insert_one(Org, {{cookbook_old = Type, Id}, Data}, Acc) ->
+    %%?debugVal({Type, Id}),
+    %%?debugFmt("~p~n",[Data]),
+    dict:update_counter(Type, 1, Acc);
 %%%
 %%% Handled in pass zero
 %%%
 insert_one(_Org, {{checksum, _Id}, _}, Acc) ->
+    Acc;
+insert_one(_Org, {{databag, _Id}, _}, Acc) ->
     Acc;
 %%
 %% Unhandled objects

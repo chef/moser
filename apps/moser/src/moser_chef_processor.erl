@@ -175,6 +175,8 @@ normalize_type_name(<<"Mixlib::Authorization::Models::Node">>) -> {auth_simple, 
 normalize_type_name(<<"Mixlib::Authorization::Models::Role">>) -> {auth_simple, role};
 normalize_type_name(<<"Mixlib::Authorization::Models::Sandbox">>) -> {auth_simple, sandbox};
 normalize_type_name(<<"Chef::Checksum">>) -> {chef, checksum};
+normalize_type_name(<<"Chef::Cookbook">>) -> {chef, cookbook};
+normalize_type_name(<<"Cookbook">>) -> {chef, cookbook_old};
 normalize_type_name(<<"Chef::CookbookVersion">>) -> {chef, cookbook_version};
 normalize_type_name(<<"Chef::DataBag">>) -> {chef, databag};
 normalize_type_name(<<"Chef::DataBagItem">>) -> {chef, databag_item};

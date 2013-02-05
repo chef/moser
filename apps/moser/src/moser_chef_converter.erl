@@ -25,7 +25,8 @@
 
 %% API
 -export([insert/1,
-         cleanup_org/1,
+         cleanup_organization/1,
+         cleanup_orgid/1,
          cleanup_all/0]).
 
 -include("moser.hrl").
@@ -44,7 +45,17 @@
                     <<"root_files">>,
                     <<"templates">> ]).
 
-
+%% Order is important because of foreign key constraints on
+%% cookbook_version_checksums, checksums, cookbook_versions, and cookbooks
+-define(SQL_TABLES, ["cookbook_version_checksums",
+                     "checksums",
+                     "cookbook_versions",
+                     "cookbooks",
+                     "environments",
+                     "roles",
+                     "clients",
+                     "data_bag_items",
+                     "data_bags"]).
 
 insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     try
@@ -322,7 +333,7 @@ get_user_side_auth_id(_Org, Type, Name, Id) ->
 
 get_user_side_auth_id_generic(Auth, Type, Name) ->
     case ets:lookup(Auth, {Type, Name}) of
-        [{_, {UserId, Data}}] -> 
+        [{_, {UserId, Data}}] ->
             Requester = ej:get({"requester_id"}, Data),
             {UserId, Requester};
         [] ->
@@ -334,23 +345,35 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).
 
-cleanup_org(#org_info{org_id = _OrgId}) ->
-    foo.
+sqerl_delete_helper(Table, Where) ->
+    case sqerl:adhoc_delete(Table, Where) of
+        {ok, X} ->
+            {ok, Table, X};
+        {error, Error} ->
+            ?debugFmt("Cleanup error ~p ~p ~p", [Error, Table, Where]),
+            {error, Table, Error}
+    end.
+
+delete_table_for_org("cookbook_versions", OrgId) ->
+    Stmt = iolist_to_binary(["delete from cookbook_versions using cookbooks ",
+                             "where cookbook_id = cookbooks.id and cookbooks.org_id = '",
+                             OrgId, "';"]),
+    case sqerl:execute(Stmt) of
+        {ok, X} ->
+            {ok, "cookbook_versions", X};
+        {error, Error} ->
+            ?debugFmt("Cleanup error ~p ~p ~p", [Error, "cookbook_versions", Stmt]),
+            {error, "cookbook_versions", Error}
+    end;
+delete_table_for_org(Table,OrgId) ->
+    sqerl_delete_helper(Table, {"org_id", equals, OrgId}).
+
+cleanup_organization(OrgName) ->
+    cleanup_orgid(moser_utils:orgname_to_guid(OrgName)).
+
+cleanup_orgid(OrgId) ->
+    [ delete_table_for_org(Table, OrgId) || Table <- ?SQL_TABLES ].
 
 cleanup_all() ->
-    Query =
-        <<"delete from cookbook_version_checksums;" %% cookbook_version_checksums, checksums,
-          "delete from checksums;"            %% cookbook_versions, and cookbooks
-          "delete from cookbook_versions;"
-          "delete from cookbooks;"
-          "delete from environments;"
-          "delete from roles;"
-          "delete from clients;"
-          "delete from data_bags;"
-          "delete from data_bag_items;">>,
-    case sqerl:execute(Query) of
-        {ok, X} ->
-            ?debugVal(X);
-        {error, Error} ->
-            ?debugFmt("Cleanup error ~p", [Error])
-    end.
+    [ sqerl_delete_helper(Q, all) || Q <- ?SQL_TABLES ].
+

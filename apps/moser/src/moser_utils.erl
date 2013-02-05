@@ -26,7 +26,8 @@
 %% API
 -export([fix_chef_id/1,
          get_org_id/1,
-         list_ej_keys/1
+         list_ej_keys/1,
+         orgname_to_guid/1
         ]).
 
 -include("moser.hrl").
@@ -40,7 +41,10 @@ fix_chef_id(X) ->
 get_org_id(#org_info{org_id = OrgId}) ->
     iolist_to_binary(OrgId).
 
-
+orgname_to_guid(OrgName) ->
+    BinaryOrgName = iolist_to_binary(OrgName),
+    [{BinaryOrgName, BinaryGuid}] = dets:lookup(orgname_to_guid, BinaryOrgName),
+    binary_to_list(BinaryGuid).
 
 list_ej_keys({Ej}) ->
     lists:sort([K || {K,_} <- Ej]).

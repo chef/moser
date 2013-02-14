@@ -150,26 +150,11 @@ insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org,
 
 %%
 %% client
-insert_one(Org, {{client = Type, Name}, {Id, Data}}, Acc) ->
-%%    ?debugVal({Name, Id}),
-%%    ?debugFmt("~p~n",[Data]),
-    AId = user_to_auth(Org, Id), %% Clients are special; they don't contain an authz id field, but their Id is the user side id
-    RequesterId = AId, %% TODO: Check that this is right
-%%    ?debugVal(AId),
-    {PubKey, PubKeyVersion, IsValidator, IsAdmin} = extract_client_key_info(Data),
-    Client = #chef_client{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AId,
-      org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name,
-      validator = IsValidator,
-      admin = IsAdmin,
-      public_key = PubKey,
-      pubkey_version = PubKeyVersion
-     },
-    ObjWithDate = chef_object:set_created(Client, RequesterId),
-    {ok, 1} = chef_sql:create_client(ObjWithDate),
-    dict:update_counter(Type, 1, Acc);
+insert_one(Org, {{client, Name}, {Id, Data}}, Acc) ->
+    InsertedType = process_client(Org, Name, Id, Data),
+    dict:update_counter(InsertedType, 1, Acc);
+
+
 %%
 %% Data bag item
 insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
@@ -253,9 +238,9 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
 %% May want a final check with Adam and CB to make sure there isn't some secret stuff, but it appears
 %% we can ignore them for now.
 %%
-insert_one(Org, {{cookbook_old = Type, Id}, Data}, Acc) ->
-    %%?debugVal({Type, Id}),
-    %%?debugFmt("~p~n",[Data]),
+insert_one(_Org, {{cookbook_old = Type, _Id}, _Data}, Acc) ->
+    %%?debugVal({_Type, _Id}),
+    %%?debugFmt("~p~n",[_Data]),
     dict:update_counter(Type, 1, Acc);
 %%%
 %%% Handled in pass zero
@@ -292,21 +277,66 @@ process_databag(Org, Id, Data) ->
     {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
     databag.
 
+%%
+%% Client insertion
+%%
+process_client(Org, Name, Id, Data) ->
+    %% Clients are special; they don't contain an authz id field, but their Id is the user side id
+    AId = user_to_auth(Org, Id),
+    RequesterId = AId, %% TODO: Check that this is right
+    {PubKey, PubKeyVersion} = extract_client_key_info(Data),
+    IsValidator = is_validator(Org#org_info.org_name, Data),
+    IsAdmin = false, %% This is a OSC feature, false everywhere else
+    Client = #chef_client{
+      id = moser_utils:fix_chef_id(Id),
+      authz_id = AId,
+      org_id = iolist_to_binary(Org#org_info.org_id),
+      name = Name,
+      validator = IsValidator,
+      admin = IsAdmin,
+      public_key = PubKey,
+      pubkey_version = PubKeyVersion
+     },
+    ObjWithDate = chef_object:set_created(Client, RequesterId),
+    try
+        {ok, 1} = chef_sql:create_client(ObjWithDate)
+    catch
+        error:E ->
+            ?debugFmt("~p~n",[Data]),
+            ?debugVal(E), ?debugVal(erlang:get_stacktrace())
+    end,
+    client.
+
+is_validator(OrgName, Data) ->
+    Client = ej:get({"clientname"}, Data),
+    {ok, RE} = re:compile("^(?<Org>.*)-validator$"),  %% Figure out how to do this only once
+    case re:run(Client, RE, [{capture, ['Org'], binary}]) of
+        {match, [OrgName]} ->
+            true;
+        nomatch ->
+            false
+    end.
+
+extract_client_key_info(Data) ->
+    case ej:get({"certificate"}, Data) of
+        undefined ->
+            case ej:get({"public_key"}, Data) of
+                undefined ->
+                    ?debugFmt("~p~n",[Data]),
+                    %% figure out something better
+                    {undefined, undefined};
+                PubKey ->
+                    {PubKey, ?KEY_VERSION}
+            end;
+        PubKey ->
+            PubKeyVersion =  ?CERT_VERSION,
+            {PubKey, PubKeyVersion}
+    end.
+
 
 %%
 %% Utility routines
 %%
-extract_client_key_info(Data) ->
-    case ej:get({"certificate"}, Data) of
-        undefined ->
-            %% figure out something better
-            {undefined, undefined, undefined, undefined};
-        PubKey ->
-            PubKeyVersion =  ?KEY_VERSION,
-            {PubKey, PubKeyVersion, false, false}
-    end.
-
-
 extract_all_checksums(Sections, Data) ->
     lists:flatten([ extract_checksums(ej:get({Section}, Data)) || Section <- Sections ]).
 
@@ -387,4 +417,3 @@ cleanup_orgid(OrgId) ->
 
 cleanup_all() ->
     [ sqerl_delete_helper(Q, all) || Q <- ?SQL_TABLES ].
-

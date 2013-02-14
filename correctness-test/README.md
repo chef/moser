@@ -10,7 +10,7 @@
     * `mysql -uroot "create database opscode_chef;"`
     * `mysql -uroot opscode_chef < backup.sql`
 * Dump the MySQL database into PostgreSQL format
-    * dump/restore scripts located [here](https://gist.github.com/sdelano/1ce71632b9e93818f9b1)
+    * `correctness-test/scripts/dump.sh` (symlink to chef-mover/mysql_to_pgsql/dump.sh)
 
 ### Moser ###
 

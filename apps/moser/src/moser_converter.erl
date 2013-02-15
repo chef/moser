@@ -60,6 +60,6 @@ process_insert_file(File) ->
         after
             moser_chef_processor:cleanup_org_info(Db)
         end,
-    Time = timer:now_diff(os:timestamp(), Start) / 1.0E6,
-    io:format("~s (~s) in ~f secs", [Db#org_info.org_name, Db#org_info.org_id, Time]),
+    Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
+    io:format("~s (~s) in ~f secs~n", [Db#org_info.org_name, Db#org_info.org_id, Time]),
     R.

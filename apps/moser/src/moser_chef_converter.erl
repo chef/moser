@@ -63,7 +63,7 @@ insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
         {Time1, Totals1} = insert_databags(Org, Totals0),
         {Time2, _} = insert_objects(Org, Totals1),
         TotalTime = Time0 + Time1 + Time2,
-        io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, (TotalTime)/10000000]),
+        io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(TotalTime)]),
         {ok, TotalTime}
     catch
         error:E ->
@@ -80,7 +80,7 @@ insert_checksums(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Or
                                     end,
                                     Totals, Chef] ),
 %%    io:format("Insert Checksums Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
-    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
+    io:format("Database ~s (org ~s) checksum insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 
 
@@ -117,7 +117,7 @@ insert_databags(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org
                                     end,
                                     Totals, Chef] ),
 %%    io:format("Insert Databags Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
-    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
+    io:format("Database ~s (org ~s) databag insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 
 insert_databag(Org, {{databag, Id}, Data}, Acc) ->
@@ -144,7 +144,7 @@ insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org,
                                     end,
                                     Totals, Chef] ),
     io:format("Insert Objects Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
-    io:format("Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, Time/10000000]),
+    io:format("Database ~s (org ~s) all others insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 
 

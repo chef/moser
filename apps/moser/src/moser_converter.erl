@@ -50,12 +50,16 @@ process_file_list(FileList) ->
     [ process_insert_file(File) || File <- FileList].
 
 process_insert_file(File) ->
+    Start = os:timestamp(),
     {ok, Db} = moser_chef_processor:process_couch_file(File),
-    try
-        moser_chef_converter:insert(Db)
-    catch
-        error:E ->
-            {error, E}
-    after
-        moser_chef_processor:cleanup_org_info(Db)
-    end.
+    R = try
+            moser_chef_converter:insert(Db)
+        catch
+            error:E ->
+                {error, E}
+        after
+            moser_chef_processor:cleanup_org_info(Db)
+        end,
+    Time = timer:now_diff(os:timestamp(), Start) / 1.0E6,
+    io:format("~s (~s) in ~f secs", [Db#org_info.org_name, Db#org_info.org_id, Time]),
+    R.

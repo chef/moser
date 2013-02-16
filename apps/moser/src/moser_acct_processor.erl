@@ -28,7 +28,9 @@
          close_account/1,
          process_account_file/0,
          cleanup_account_info/1,
-         user_to_auth/2
+         user_to_auth/2,
+         get_org_guid_by_name/2,
+         get_org_by_guid/2
         ]).
 
 -include("moser.hrl").
@@ -49,21 +51,25 @@ open_account() ->
     {ok, U2A} = dets_open_file(user_to_authz),
     {ok, A2U} = dets_open_file(authz_to_user),
     {ok, O2G} = dets_open_file(orgname_to_guid),
+    {ok, Orgs} = dets_open_file(orgs_by_guid),
     {ok, Db}  = dets_open_file(account_db),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,
                    orgname_to_guid = O2G,
+                   orgs_by_guid = Orgs,
                    db = Db
                  }.
 
 close_account(#account_info{user_to_authz = U2A,
                             authz_to_user = A2U,
                             orgname_to_guid = O2G,
+                            orgs_by_guid = Orgs,
                             db = Db}) ->
     dets:close(U2A),
     dets:close(A2U),
     dets:close(O2G),
+    dets:close(Orgs),
     dets:close(Db).
 
 process_account_file() ->
@@ -110,11 +116,13 @@ process_item_by_type(auth_join,
     dets:insert(Auth2User, {AuthId, UserId}),
     ok;
 process_item_by_type(auth_org,
-                     #account_info{orgname_to_guid=OrgName2Guid},
+                     #account_info{orgname_to_guid=OrgName2Guid,
+                                   orgs_by_guid=Orgs},
                      _Key, Body) ->
     OrgName = ej:get({<<"name">>}, Body),
     Guid = ej:get({<<"guid">>}, Body),
     dets:insert(OrgName2Guid, {OrgName, Guid}),
+    dets:insert(Orgs, {Guid, Body}),
     ok;
 process_item_by_type(auth_user,
                      #account_info{db=Db}, Key, Body) ->
@@ -162,3 +170,14 @@ user_to_auth(_, bad_id) ->
 user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
     [{Id,V}] = dets:lookup(U2A, Id),
     V.
+
+get_org_guid_by_name(Name,
+                     #account_info{orgname_to_guid=OrgName2Guid}) ->
+    [{Name, GUID}] = dets:lookup(OrgName2Guid, Name),
+    GUID.
+
+get_org_by_guid(GUID,
+                #account_info{orgs_by_guid=Orgs}) ->
+    [{GUID, OrgData}] = dets:lookup(Orgs, GUID),
+    OrgData.
+

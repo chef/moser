@@ -44,5 +44,6 @@
         { user_to_authz,
           authz_to_user,
           orgname_to_guid,
+          orgs_by_guid,
           db
         }).

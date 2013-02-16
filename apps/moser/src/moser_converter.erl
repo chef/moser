@@ -27,7 +27,8 @@
 -export([get_chef_list/0,
          process_file_list/1,
          process_insert_file/1,
-get_couch_path/0]).
+         remove_precreated_from_file_list/1,
+         get_couch_path/0]).
 
 -include("moser.hrl").
 
@@ -48,6 +49,15 @@ get_chef_list() ->
 
 process_file_list(FileList) ->
     [ process_insert_file(File) || File <- FileList].
+
+remove_precreated_from_file_list(FileList) ->
+    AcctInfo = moser_acct_processor:open_account(),
+    [ F || F <- FileList,
+           is_file_precreated_org(F, AcctInfo) ].
+
+is_file_precreated_org(File, AcctInfo) ->
+    OrgId = moser_utils:get_orgid_from_dbname(File),
+    moser_acct_processor:is_precreated_org(OrgId, AcctInfo).
 
 process_insert_file(File) ->
     Start = os:timestamp(),

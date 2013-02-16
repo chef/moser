@@ -30,7 +30,10 @@
          cleanup_account_info/1,
          user_to_auth/2,
          get_org_guid_by_name/2,
-         get_org_by_guid/2
+         get_org_by_guid/2,
+         get_org/2,
+         is_precreated_org/1,
+         is_precreated_org/2
         ]).
 
 -include("moser.hrl").
@@ -181,3 +184,21 @@ get_org_by_guid(GUID,
     [{GUID, OrgData}] = dets:lookup(Orgs, GUID),
     OrgData.
 
+get_org(GUID_or_Name,
+        #account_info{orgname_to_guid=OrgName2Guid} = AInfo) ->
+    GUID = case dets:lookup(OrgName2Guid, GUID_or_Name) of
+               [{GUID_or_Name, G}] -> G;
+               _ -> GUID_or_Name
+           end,
+    get_org_by_guid(GUID, AInfo).
+
+is_precreated_org(OrgData) when is_tuple(OrgData) ->
+    case ej:get({"full_name"}, OrgData) of
+        <<"Pre-created">> ->
+            true;
+        _ ->
+            false
+    end.
+
+is_precreated_org(GUID_or_Name, AInfo) ->
+    is_precreated_org(get_org(GUID_or_Name, AInfo)).

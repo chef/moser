@@ -311,12 +311,13 @@ process_client(Org, Name, Id, Data) ->
     client.
 
 is_validator(OrgName, Data) ->
+    %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that
     Client = ej:get({"clientname"}, Data),
     {ok, RE} = re:compile("^(?<Org>.*)-validator$"),  %% Figure out how to do this only once
     case re:run(Client, RE, [{capture, ['Org'], binary}]) of
         {match, [OrgName]} ->
             true;
-        nomatch ->
+        _ ->
             false
     end.
 

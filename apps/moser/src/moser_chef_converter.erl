@@ -256,6 +256,9 @@ insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
     RType = list_to_atom("SKIP_P2_" ++ atom_to_list(Type)),
     dict:update_counter(RType, 1, Acc);
 %    Acc;
+%% Orgname object should match org name
+insert_one(_Org, {orgname, _}, Acc) ->
+    Acc;
 insert_one(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.

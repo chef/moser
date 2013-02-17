@@ -285,9 +285,7 @@ process_databag(Org, Id, Data) ->
 %% Client insertion
 %%
 process_client(Org, Name, Id, Data) ->
-    %% Clients are special; they don't contain an authz id field, but their Id is the user side id
-    AId = user_to_auth(Org, Id),
-    RequesterId = AId, %% TODO: Check that this is right
+    {AId, RequesterId} = get_authz_info(Org, client, Name, Id),
     {PubKey, PubKeyVersion} = extract_client_key_info(Data),
     IsValidator = is_validator(Org#org_info.org_name, Data),
     IsAdmin = false, %% This is a OSC feature, false everywhere else
@@ -355,12 +353,25 @@ extract_checksums(SegmentData) ->
 %% map the user side id via opscode_account to the auth side id and return a tuple
 get_authz_info(Org, Type, Name, Id) ->
     {UserId, RequesterId} = get_user_side_auth_id(Org,Type,Name,Id),
-    AuthId = user_to_auth(Org, UserId),
-    {AuthId, RequesterId}.
+    AuthId = case user_to_auth(Org, UserId) of
+              {ok, A} -> A;
+              {fail, _} ->
+                  Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
+                                                       [Org#org_info.org_name, Type, Name, Id])),
+                  ?debugFmt("~s", [Msg]),
+                  throw({fatal, Msg})
+          end,
+    case RequesterId of
+        clone -> {AuthId, AuthId};
+        _  -> {AuthId,  RequesterId}
+    end.
 
 %%
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
+get_user_side_auth_id(#org_info{}, client, _Name, Id) ->
+    %% Clients are special; they are their own mixlib auth docs
+    {Id, clone};
 get_user_side_auth_id(#org_info{auth_ets=Auth}, cookbook_version, Name, _Id) ->
     [{_, {UserId, Data}}] = ets:lookup(Auth, {cookbook, Name}),
     Requester = ej:get({"requester_id"}, Data),

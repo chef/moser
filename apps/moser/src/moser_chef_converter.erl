@@ -67,6 +67,7 @@ insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
         {ok, TotalTime}
     catch
         error:E ->
+            ?debugFmt("~p~n~p~n", [E,erlang:get_stacktrace()]),
             {error, E}
     end.
 

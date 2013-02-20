@@ -32,12 +32,13 @@
         }).
 
 -record(org_info,
-        { org_name,
-          org_id,
-          db_name,
+        { org_name = undefined,
+          org_id = undefined,
+          db_name = undefined,
+          is_precreated = false,
           chef_ets,
           auth_ets,
-          account_info,
+          account_info = undefined,
           start_time}).
 
 -record(account_info,

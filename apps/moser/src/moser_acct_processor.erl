@@ -33,7 +33,8 @@
          get_org_by_guid/2,
          get_org/2,
          is_precreated_org/1,
-         is_precreated_org/2
+         is_precreated_org/2,
+         expand_org_info/1
         ]).
 
 -include("moser.hrl").
@@ -202,3 +203,26 @@ is_precreated_org(OrgData) when is_tuple(OrgData) ->
 
 is_precreated_org(GUID_or_Name, AInfo) ->
     is_precreated_org(get_org(GUID_or_Name, AInfo)).
+
+
+expand_org_info(#org_info{account_info = undefined} = OrgInfo) ->
+    AcctInfo = moser_acct_processor:open_account(),
+    expand_org_info(OrgInfo#org_info{account_info = AcctInfo});
+expand_org_info(#org_info{org_name = OrgName, org_id = undefined, db_name = undefined,
+                          account_info = #account_info{} = Acct} = OrgInfo) ->
+    OrgDesc = get_org(OrgName, Acct),
+    OrgId = ej:get({"guid"}, OrgDesc),
+    DbName = moser_utils:get_dbname_from_orgid(OrgId),
+    OrgInfo#org_info{org_id = OrgId, db_name = DbName, is_precreated = is_precreated_org(OrgDesc)};
+expand_org_info(#org_info{org_name = undefined, org_id = OrgId, db_name = undefined,
+                          account_info = #account_info{} = Acct} = OrgInfo) ->
+    OrgDesc = get_org_by_guid(OrgId, Acct),
+    OrgName = ej:get({"name"}, OrgDesc),
+    DbName = moser_utils:get_dbname_from_orgid(OrgId),
+    OrgInfo#org_info{org_name = OrgName, db_name = DbName, is_precreated = is_precreated_org(OrgDesc)};
+expand_org_info(#org_info{org_name = undefined, org_id = undefined, db_name = DbName,
+                          account_info = #account_info{} = Acct} = OrgInfo) ->
+    OrgId = moser_utils:get_orgid_from_dbname(DbName),
+    OrgDesc = get_org_by_guid(OrgId, Acct),
+    OrgName = ej:get({"name"}, OrgDesc),
+    OrgInfo#org_info{org_name = OrgName, org_id = OrgId, is_precreated = is_precreated_org(OrgDesc)}.

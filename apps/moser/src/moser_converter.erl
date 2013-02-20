@@ -25,6 +25,10 @@
 
 %% API
 -export([get_chef_list/0,
+         file_list_to_orginfo/1,
+         filter_out_precreated_orgs/1,
+         process_insert_org/1,
+         process_insert_orgs/1,
          process_file_list/1,
          process_insert_file/1,
          remove_precreated_from_file_list/1,
@@ -47,13 +51,39 @@ get_chef_list() ->
     DbPattern = filename:join([Path, "chef_*.couch"]),
     filelib:wildcard(DbPattern).
 
+file_list_to_orginfo(L) ->
+    [moser_acct_processor:expand_org_info(#org_info{db_name = F}) || F <- L].
+
+filter_out_precreated_orgs(OL) ->
+    [O || O <- OL, not O#org_info.is_precreated].
+
+process_insert_org(OrgInfo) ->
+    Start = os:timestamp(),
+    {ok, OrgInfoFull} = moser_chef_processor:process_couch_file(OrgInfo),
+    R = try
+            moser_chef_converter:insert(OrgInfoFull)
+        catch
+            error:E ->
+                {error, E}
+        after
+            moser_chef_processor:cleanup_org_info(OrgInfoFull)
+        end,
+    Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
+    io:format("~s (~s) in ~f secs~n", [OrgInfoFull#org_info.org_name, OrgInfoFull#org_info.org_id, Time]),
+    R.
+
+process_insert_orgs(L) ->
+    [ process_insert_org(O) || O <- L].
+
+%% Deprecated
+
 process_file_list(FileList) ->
     [ process_insert_file(File) || File <- FileList].
 
 remove_precreated_from_file_list(FileList) ->
     AcctInfo = moser_acct_processor:open_account(),
     [ F || F <- FileList,
-           is_file_precreated_org(F, AcctInfo) ].
+           not is_file_precreated_org(F, AcctInfo) ].
 
 is_file_precreated_org(File, AcctInfo) ->
     OrgId = moser_utils:get_orgid_from_dbname(File),

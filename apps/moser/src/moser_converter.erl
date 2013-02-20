@@ -50,7 +50,7 @@ process_file_list(FileList) ->
     [ process_insert_file(File) || File <- FileList].
 
 process_insert_file(File) ->
-    Db = moser_chef_processor:process_couch_file(File),
+    {ok, Db} = moser_chef_processor:process_couch_file(File),
     try
         moser_chef_converter:insert(Db)
     catch

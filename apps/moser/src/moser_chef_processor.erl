@@ -27,10 +27,8 @@
 -export([cleanup_org_info/1,
          extract_type/2,
          process_couch_file/1,
-         process_couch_file/2,
-         process_couch_orgid/1,
-         process_organization/1,
-         get_orgid_from_dbname/1
+         process_couch_file/3,
+         process_organization/1
         ]).
 
 -include("moser.hrl").
@@ -41,33 +39,26 @@
 %%% API
 %%%===================================================================
 
-get_orgid_from_dbname(DbName) ->
-    {match, [OrgId]} = re:run(DbName, ".*chef_([[:xdigit:]]*).couch", [{capture, all_but_first, binary}]),
-    OrgId.
 
 process_organization(OrgName) ->
-    process_couch_orgid(moser_utils:orgname_to_guid(OrgName)).
+    OrgId = moser_utils:orgname_to_guid(OrgName),
+    DbFile = moser_utils:get_dbname_from_orgid(OrgId),
+    process_couch_file(OrgName, OrgId, DbFile).
 
-process_couch_orgid(OrgId) ->
-    FileName = lists:flatten(["chef_", OrgId, ".couch"]),
-    DbName = filename:join([moser_converter:get_couch_path(),FileName]),
-    process_couch_file(DbName, OrgId).
-
-process_couch_file(DbName) ->
-    OrgId = get_orgid_from_dbname(DbName),
-
-    case filelib:is_file(DbName) of
+process_couch_file(DbFile) ->
+    OrgId = moser_utils:get_orgid_from_dbname(DbFile),
+    case filelib:is_file(DbFile) of
         false ->
-            ?debugFmt("Can't open file ~s", [DbName]);
+            ?debugFmt("Can't open file ~s", [DbFile]);
         true ->
-            process_couch_file(DbName, OrgId)
+            process_couch_file(unknown, OrgId, DbFile)
     end.
 
-process_couch_file(DbName, OrgId) ->
+process_couch_file(OrgName, OrgId, DbName) ->
     CData = ets:new(chef_data, [set,public]),
     AData = ets:new(auth_data, [set,public]),
 
-    Org = #org_info{ org_name = "TBD",
+    Org = #org_info{ org_name = OrgName,
                      org_id = OrgId,
                      db_name = DbName,
                      chef_ets = CData,
@@ -79,11 +70,16 @@ process_couch_file(DbName, OrgId) ->
                      AccIn
              end,
     decouch_reader:open_process_all(DbName, IterFn),
-    %% TODO: fix this to get orgname properly (from guid or something)
-    case ets:lookup(Org#org_info.chef_ets, orgname) of
-        [] -> Org;
-        [{orgname, OrgName}] ->
-            Org#org_info{org_name = OrgName}
+    OrgNameFromFile = case ets:lookup(Org#org_info.chef_ets, orgname) of
+                          [] -> unknown;
+                          [{orgname, O}] -> O
+                      end,
+    case OrgName of
+        unknown -> {ok, Org#org_info{org_name = OrgNameFromFile}};
+        OrgNameFromFile -> {ok, Org};
+        _ ->
+            lager:error("OrgName provided (~s) doesn't match OrgName (~s) in the file ~s", [OrgName, OrgNameFromFile, DbName]),
+            {error, "OrgName mismatch"}
     end.
 
 cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth_ets = Auth, start_time = Start}) ->

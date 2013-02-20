@@ -68,20 +68,24 @@ filter_out_precreated_orgs(OL) ->
 
 process_insert_org(OrgInfo) ->
     Start = os:timestamp(),
-    {ok, OrgInfoFull} = moser_chef_processor:process_couch_file(OrgInfo),
-    R = try
-            moser_chef_converter:insert(OrgInfoFull)
-        catch
-            error:E ->
-                {error, E};
-            throw:E ->
-                {error, E}
-        after
-            moser_chef_processor:cleanup_org_info(OrgInfoFull)
-        end,
-    Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
-    io:format("~s (~s) in ~f secs~n", [OrgInfoFull#org_info.org_name, OrgInfoFull#org_info.org_id, Time]),
-    R.
+    case moser_chef_processor:process_couch_file(OrgInfo) of
+        {ok, OrgInfoFull} ->
+            R = try
+                    moser_chef_converter:insert(OrgInfoFull)
+                catch
+                    error:E ->
+                        {error, E};
+                    throw:E ->
+                        {error, E}
+                after
+                    moser_chef_processor:cleanup_org_info(OrgInfoFull)
+                end,
+            Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
+            io:format("~s (~s) in ~f secs~n", [OrgInfoFull#org_info.org_name, OrgInfoFull#org_info.org_id, Time]),
+            R;
+        {error, Msg} ->
+            {error, Msg}
+    end.
 
 process_insert_orgs(L) ->
     [ process_insert_org(O) || O <- L].

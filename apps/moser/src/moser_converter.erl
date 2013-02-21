@@ -51,8 +51,17 @@ get_chef_list() ->
     DbPattern = filename:join([Path, "chef_*.couch"]),
     filelib:wildcard(DbPattern).
 
+expand_org_info(Org) ->
+    try
+        moser_acct_processor:expand_org_info(Org)
+    catch
+        error:E ->
+            ?debugFmt("Couldn't expand ~p~n~p~n", [Org, E]),
+            []
+    end.
+
 file_list_to_orginfo(L) ->
-    [moser_acct_processor:expand_org_info(#org_info{db_name = F}) || F <- L].
+    lists:flatten([expand_org_info(#org_info{db_name = F}) || F <- L]).
 
 filter_out_precreated_orgs(OL) ->
     [O || O <- OL, not O#org_info.is_precreated].

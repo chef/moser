@@ -30,7 +30,8 @@
          get_orgid_from_dbname/1,
          get_dbname_from_orgid/1,
          list_ej_keys/1,
-         orgname_to_guid/1
+         orgname_to_guid/1,
+         us_to_secs/1
         ]).
 
 -include("moser.hrl").
@@ -60,4 +61,5 @@ get_dbname_from_orgid(OrgId) ->
 list_ej_keys({Ej}) ->
     lists:sort([K || {K,_} <- Ej]).
 
-
+us_to_secs(USecs) ->
+    USecs / 1.0E6.

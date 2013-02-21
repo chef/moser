@@ -86,7 +86,7 @@ cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth
     ets:delete(Chef),
     ets:delete(Auth),
     Time = timer:now_diff(os:timestamp(), Start),
-    io:format("Database ~s (org ~s) completed in ~f seconds", [Name, Guid, Time/10000000]).
+    io:format("Database ~s (org ~s) completed in ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]).
 
 %%--------------------------------------------------------------------
 %% @doc

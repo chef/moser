@@ -172,8 +172,10 @@ normalize_type_name(T) ->
 user_to_auth(_, bad_id) ->
     <<"bad_authz_id">>;
 user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
-    [{Id,V}] = dets:lookup(U2A, Id),
-    V.
+    case dets:lookup(U2A, Id) of
+        [{Id,V}] -> {ok, V};
+        [] -> {fail, <<"bad_authz_id">>}
+    end.
 
 get_org_guid_by_name(Name,
                      #account_info{orgname_to_guid=OrgName2Guid}) ->

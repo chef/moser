@@ -28,7 +28,13 @@
          close_account/1,
          process_account_file/0,
          cleanup_account_info/1,
-         user_to_auth/2
+         user_to_auth/2,
+         get_org_guid_by_name/2,
+         get_org_by_guid/2,
+         get_org/2,
+         is_precreated_org/1,
+         is_precreated_org/2,
+         expand_org_info/1
         ]).
 
 -include("moser.hrl").
@@ -49,21 +55,25 @@ open_account() ->
     {ok, U2A} = dets_open_file(user_to_authz),
     {ok, A2U} = dets_open_file(authz_to_user),
     {ok, O2G} = dets_open_file(orgname_to_guid),
+    {ok, Orgs} = dets_open_file(orgs_by_guid),
     {ok, Db}  = dets_open_file(account_db),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,
                    orgname_to_guid = O2G,
+                   orgs_by_guid = Orgs,
                    db = Db
                  }.
 
 close_account(#account_info{user_to_authz = U2A,
                             authz_to_user = A2U,
                             orgname_to_guid = O2G,
+                            orgs_by_guid = Orgs,
                             db = Db}) ->
     dets:close(U2A),
     dets:close(A2U),
     dets:close(O2G),
+    dets:close(Orgs),
     dets:close(Db).
 
 process_account_file() ->
@@ -110,11 +120,13 @@ process_item_by_type(auth_join,
     dets:insert(Auth2User, {AuthId, UserId}),
     ok;
 process_item_by_type(auth_org,
-                     #account_info{orgname_to_guid=OrgName2Guid},
+                     #account_info{orgname_to_guid=OrgName2Guid,
+                                   orgs_by_guid=Orgs},
                      _Key, Body) ->
     OrgName = ej:get({<<"name">>}, Body),
     Guid = ej:get({<<"guid">>}, Body),
     dets:insert(OrgName2Guid, {OrgName, Guid}),
+    dets:insert(Orgs, {Guid, Body}),
     ok;
 process_item_by_type(auth_user,
                      #account_info{db=Db}, Key, Body) ->
@@ -162,3 +174,55 @@ user_to_auth(_, bad_id) ->
 user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
     [{Id,V}] = dets:lookup(U2A, Id),
     V.
+
+get_org_guid_by_name(Name,
+                     #account_info{orgname_to_guid=OrgName2Guid}) ->
+    [{Name, GUID}] = dets:lookup(OrgName2Guid, Name),
+    GUID.
+
+get_org_by_guid(GUID,
+                #account_info{orgs_by_guid=Orgs}) ->
+    [{GUID, OrgData}] = dets:lookup(Orgs, GUID),
+    OrgData.
+
+get_org(GUID_or_Name,
+        #account_info{orgname_to_guid=OrgName2Guid} = AInfo) ->
+    GUID = case dets:lookup(OrgName2Guid, GUID_or_Name) of
+               [{GUID_or_Name, G}] -> G;
+               _ -> GUID_or_Name
+           end,
+    get_org_by_guid(GUID, AInfo).
+
+is_precreated_org(OrgData) when is_tuple(OrgData) ->
+    case ej:get({"full_name"}, OrgData) of
+        <<"Pre-created">> ->
+            true;
+        _ ->
+            false
+    end.
+
+is_precreated_org(GUID_or_Name, AInfo) ->
+    is_precreated_org(get_org(GUID_or_Name, AInfo)).
+
+
+expand_org_info(#org_info{account_info = undefined} = OrgInfo) ->
+    AcctInfo = moser_acct_processor:open_account(),
+    expand_org_info(OrgInfo#org_info{account_info = AcctInfo});
+expand_org_info(#org_info{org_name = OrgName, org_id = undefined, db_name = undefined,
+                          account_info = #account_info{} = Acct} = OrgInfo) ->
+    OrgDesc = get_org(OrgName, Acct),
+    OrgId = ej:get({"guid"}, OrgDesc),
+    DbName = moser_utils:get_dbname_from_orgid(OrgId),
+    OrgInfo#org_info{org_id = OrgId, db_name = DbName, is_precreated = is_precreated_org(OrgDesc)};
+expand_org_info(#org_info{org_name = undefined, org_id = OrgId, db_name = undefined,
+                          account_info = #account_info{} = Acct} = OrgInfo) ->
+    OrgDesc = get_org_by_guid(OrgId, Acct),
+    OrgName = ej:get({"name"}, OrgDesc),
+    DbName = moser_utils:get_dbname_from_orgid(OrgId),
+    OrgInfo#org_info{org_name = OrgName, db_name = DbName, is_precreated = is_precreated_org(OrgDesc)};
+expand_org_info(#org_info{org_name = undefined, org_id = undefined, db_name = DbName,
+                          account_info = #account_info{} = Acct} = OrgInfo) ->
+    OrgId = moser_utils:get_orgid_from_dbname(DbName),
+    OrgDesc = get_org_by_guid(OrgId, Acct),
+    OrgName = ej:get({"name"}, OrgDesc),
+    OrgInfo#org_info{org_name = OrgName, org_id = OrgId, is_precreated = is_precreated_org(OrgDesc)}.

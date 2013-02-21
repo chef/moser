@@ -27,7 +27,6 @@
 -export([cleanup_org_info/1,
          extract_type/2,
          process_couch_file/1,
-         process_couch_file/3,
          process_organization/1
         ]).
 
@@ -39,32 +38,28 @@
 %%% API
 %%%===================================================================
 
-
 process_organization(OrgName) ->
-    OrgId = moser_utils:orgname_to_guid(OrgName),
-    DbFile = moser_utils:get_dbname_from_orgid(OrgId),
-    process_couch_file(OrgName, OrgId, DbFile).
+    OrgInfo = moser_acct_processor:expand_org_info(#org_info{ org_name = OrgName}),
+    process_couch_file(OrgInfo).
 
-process_couch_file(DbFile) ->
-    OrgId = moser_utils:get_orgid_from_dbname(DbFile),
-    case filelib:is_file(DbFile) of
+process_couch_file(DbFile) when is_list(DbFile) ->
+    OrgInfo = moser_acct_processor:expand_org_info(#org_info{ db_name = DbFile }),
+    process_couch_file(OrgInfo);
+process_couch_file(#org_info{org_name=OrgName, db_name=DbName} = OrgInfo) ->
+    case filelib:is_file(DbName) of
         false ->
-            ?debugFmt("Can't open file ~s", [DbFile]);
+            ?debugFmt("Can't open file ~s", [DbName]),
+            throw({no_such_file, DbName});
         true ->
-            process_couch_file(unknown, OrgId, DbFile)
-    end.
+            ok
+    end,
 
-process_couch_file(OrgName, OrgId, DbName) ->
     CData = ets:new(chef_data, [set,public]),
     AData = ets:new(auth_data, [set,public]),
 
-    Org = #org_info{ org_name = OrgName,
-                     org_id = OrgId,
-                     db_name = DbName,
-                     chef_ets = CData,
-                     auth_ets = AData,
-                     account_info = moser_acct_processor:open_account(),
-                     start_time = os:timestamp()},
+    Org = OrgInfo#org_info{ chef_ets = CData,
+                            auth_ets = AData,
+                            start_time = os:timestamp()},
     IterFn = fun(Key, Body, AccIn) ->
                      process_couch_item(Org, Key, Body),
                      AccIn
@@ -75,7 +70,6 @@ process_couch_file(OrgName, OrgId, DbName) ->
                           [{orgname, O}] -> O
                       end,
     case OrgName of
-        unknown -> {ok, Org#org_info{org_name = OrgNameFromFile}};
         OrgNameFromFile -> {ok, Org};
         _ ->
             lager:error("OrgName provided (~s) doesn't match OrgName (~s) in the file ~s", [OrgName, OrgNameFromFile, DbName]),

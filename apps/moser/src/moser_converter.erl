@@ -64,6 +64,8 @@ process_insert_org(OrgInfo) ->
             moser_chef_converter:insert(OrgInfoFull)
         catch
             error:E ->
+                {error, E};
+            throw:E ->
                 {error, E}
         after
             moser_chef_processor:cleanup_org_info(OrgInfoFull)

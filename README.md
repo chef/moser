@@ -58,3 +58,21 @@ To do the db insert:
 ```
 moser_chef_converter:insert(Db).
 ```
+
+
+### Full sweep migration ###
+
+```
+> CL = moser_converter:get_chef_list(), length(CL).
+25564
+> CO = moser_converter:file_list_to_orginfo(CL), length(CO).
+25315
+> CO2 = moser_converter:filter_out_precreated_orgs(CO), length(CO2).
+16572
+> R = moser_converter:process_insert_orgs(CO2)
+> X = lists:zip(R,CO2)
+> IsFail = fun({{ok, _},_}) -> false; (_) -> true end.              
+> Fails = [ PP || PP <- Out, IsFail(PP)].          
+> file:write_file("/home/mark/failures",io_lib:fwrite("~p.\n",[Fails])).
+
+```

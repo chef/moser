@@ -36,9 +36,9 @@
 
 -include("moser.hrl").
 
-%%
-%% TODO: Determine chef id migration strategy
-%%
+%% TODO: generate org id prefixed ids and wire in solr re-index.  If we modify the id in any
+%% way, we have to re-index in solr. We might as well take advantage and generate ids that
+%% we think will have better index behavior.
 fix_chef_id(X) ->
     binary:replace(X, <<"-">>, <<>>,[global]).
 

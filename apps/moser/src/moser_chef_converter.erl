@@ -121,8 +121,10 @@ insert_databags(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org
     io:format("Database ~s (org ~s) databag insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 
-insert_databag(Org, {{databag, Id}, Data}, Acc) ->
-    InsertedType = process_databag(Org, Id, Data),
+insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
+    Name = name_for_object(Object),
+    {AuthzId, RequesterId} = get_authz_info(Org, databag, Name, Id),
+    InsertedType = process_databag(Org, Id, AuthzId, RequesterId, Data),
     dict:update_counter(InsertedType, 1, Acc);
 insert_databag(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 %%    RType = list_to_atom("SKIP_DB_" ++ atom_to_list(_Type)),
@@ -149,16 +151,31 @@ insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org,
     {Time, Totals1}.
 
 
-%%
+
+%% @doc Return the name of a Chef object given `{{Type, IdOrName}, Data}'.  The `Data' value
+%% will either be the object EJSON or for clients `{Id, Ejson}'.
+name_for_object({{client, Name}, {_Id, _Data}}) ->
+    Name;
+name_for_object({{databag_item, _Id}, Data}) ->
+    ej:get({"data_bag"}, Data);
+name_for_object({{Type, _Id}, Data}) when Type =:= role;
+                                          Type =:= environment;
+                                          Type =:= databag ->
+    ej:get({"name"}, Data);
+name_for_object({{cookbook_version, _Id}, Data}) ->
+    ej:get({"cookbook_name"}, Data).
+
+insert_one(Org, {{Type, Id}, _} = Object, Acc) ->
+    Name = name_for_object(Object),
+    {AuthzId, RequesterId} = get_authz_info(Org, Type, Name, Id),
+    insert_one(Org, Object, AuthzId, RequesterId, Acc).
+
 %% client
-insert_one(Org, {{client, Name}, {Id, Data}}, Acc) ->
-    InsertedType = process_client(Org, Name, Id, Data),
+insert_one(Org, {{client, Name}, {Id, Data}}, AuthzId, ReqesterId, Acc) ->
+    InsertedType = process_client(Org, Name, Id, AuthzId, ReqesterId, Data),
     dict:update_counter(InsertedType, 1, Acc);
-
-
-%%
 %% Data bag item
-insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
+insert_one(Org, {{databag_item = Type, Id}, Data}, _AuthzId, RequesterId, Acc) ->
     %%    ?debugVal({Type, Id}),
     %%    ?debugFmt("~p~n",[Data]),
     RawData = ej:get({<<"raw_data">>}, Data),
@@ -183,15 +200,13 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, Acc) ->
             ?debugFmt("Error inserting ~s, ~s ~n~p~n", [Type, Msg, ObjWithDate])
     end,
     dict:update_counter(Type, 1, Acc);
-%%
 %% Role
-insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
+insert_one(Org, {{role = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     Name = ej:get({<<"name">>}, Data),
-    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
     SerializedObject = jiffy:encode(Data),
     Role = #chef_role{
       id = moser_utils:fix_chef_id(Id),
-      authz_id = AId,
+      authz_id = AuthzId,
       org_id = moser_utils:get_org_id(Org),
       name = Name,
       serialized_object = SerializedObject
@@ -199,15 +214,13 @@ insert_one(Org, {{role = Type, Id}, Data}, Acc) ->
     ObjWithDate = chef_object:set_created(Role, RequesterId),
     {ok, 1} = chef_sql:create_role(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-%%
 %% Environments
-insert_one(Org, {{environment = Type, Id}, Data}, Acc) ->
+insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     Name = ej:get({<<"name">>}, Data),
-    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
     SerializedObject = jiffy:encode(Data),
     Role = #chef_environment{
       id = moser_utils:fix_chef_id(Id),
-      authz_id = AId,
+      authz_id = AuthzId,
       org_id = moser_utils:get_org_id(Org),
       name = Name,
       serialized_object = SerializedObject
@@ -215,52 +228,40 @@ insert_one(Org, {{environment = Type, Id}, Data}, Acc) ->
     ObjWithDate = chef_object:set_created(Role, RequesterId),
     {ok, 1} = chef_sql:create_environment(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-%%
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
-%%
-insert_one(Org, {{cookbook_version = Type, Id}, Data}, Acc) ->
+insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
 %    ?debugVal({Type, Id}),
 %    ?debugFmt("~p~n",[moser_utils:list_ej_keys(Data)]),
-    Name = ej:get({<<"cookbook_name">>}, Data),
-    {AId, RequesterId} = get_authz_info(Org, Type, Name, Id),
-
     _Checksums = extract_all_checksums(?SEGMENTS, Data),
 %    ?debugFmt("~p~n", [lists:usort(Checksums)]),
-
-    BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AId, Data),
+    BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AuthzId, Data),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
 %    ?debugFmt("~p~n",[ObjWithDate]),
     {ok, 1} = chef_sql:create_cookbook_version(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-%%
 %% Old style cookbooks
 %% These use the "Cookbook" chef_type. As best we can tell, this isn't used anywhere in the OHC code.
 %% May want a final check with Adam and CB to make sure there isn't some secret stuff, but it appears
 %% we can ignore them for now.
-%%
-insert_one(_Org, {{cookbook_old = Type, _Id}, _Data}, Acc) ->
+insert_one(_Org, {{cookbook_old = Type, _Id}, _Data}, _AuthzId, _RequesterId, Acc) ->
     %%?debugVal({_Type, _Id}),
     %%?debugFmt("~p~n",[_Data]),
     dict:update_counter(Type, 1, Acc);
-%%%
-%%% Handled in pass zero
-%%%
-insert_one(_Org, {{checksum, _Id}, _}, Acc) ->
+%% Handled in pass zero
+insert_one(_Org, {{checksum, _Id}, _}, _AuthzId, _RequesterId, Acc) ->
     Acc;
-insert_one(_Org, {{databag, _Id}, _}, Acc) ->
+insert_one(_Org, {{databag, _Id}, _}, _AuthzId, _RequesterId, Acc) ->
     Acc;
-%%
 %% Unhandled objects
-%%
-insert_one(_Org, {{Type, _Id}, _Data} = _Item, Acc) ->
+insert_one(_Org, {{Type, _Id}, _Data} = _Item, _AuthzId, _RequesterId, Acc) ->
     RType = list_to_atom("SKIP_P2_" ++ atom_to_list(Type)),
     dict:update_counter(RType, 1, Acc);
 %    Acc;
 %% Orgname object should match org name
-insert_one(_Org, {orgname, _}, Acc) ->
+insert_one(_Org, {orgname, _}, _AuthzId, _RequesterId, Acc) ->
     Acc;
-insert_one(_Org, Item, Acc) ->
+insert_one(_Org, Item, _AuthzId, _RequesterId, Acc) ->
     ?debugVal(Item),
     Acc.
 
@@ -268,12 +269,11 @@ insert_one(_Org, Item, Acc) ->
 %%
 %% Data bag insertion
 %%
-process_databag(Org, Id, Data) ->
+process_databag(Org, Id, AuthzId, RequesterId, Data) ->
     Name = ej:get({<<"name">>}, Data),
-    {AId, RequesterId} = get_authz_info(Org, databag, Name, Id),
     DataBag = #chef_data_bag{
       id = moser_utils:fix_chef_id(Id),
-      authz_id = AId,
+      authz_id = AuthzId,
       org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name
      },
@@ -284,14 +284,13 @@ process_databag(Org, Id, Data) ->
 %%
 %% Client insertion
 %%
-process_client(Org, Name, Id, Data) ->
-    {AId, RequesterId} = get_authz_info(Org, client, Name, Id),
+process_client(Org, Name, Id, AuthzId, RequesterId, Data) ->
     {PubKey, PubKeyVersion} = extract_client_key_info(Data),
     IsValidator = is_validator(Org#org_info.org_name, Data),
     IsAdmin = false, %% This is a OSC feature, false everywhere else
     Client = #chef_client{
       id = moser_utils:fix_chef_id(Id),
-      authz_id = AId,
+      authz_id = AuthzId,
       org_id = iolist_to_binary(Org#org_info.org_id),
       name = Name,
       validator = IsValidator,

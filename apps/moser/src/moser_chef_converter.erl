@@ -167,9 +167,15 @@ name_for_object({{cookbook_version, _Id}, Data}) ->
 name_for_object({{_Type, _Id}, _Data}) ->
     unset_name.
 
+%% Return the object id from the object tuple. This is needed because clients are special.
+id_for_object({{client, _Name}, {Id, _}}) ->
+    Id;
+id_for_object({{_Type, Id}, _}) ->
+    Id.
 
-insert_one(Org, {{Type, Id}, _} = Object, Acc) ->
+insert_one(Org, {{Type, _IdOrName}, _} = Object, Acc) ->
     Name = name_for_object(Object),
+    Id = id_for_object(Object),
     {AuthzId, RequesterId} = get_authz_info(Org, Type, Name, Id),
     insert_one(Org, Object, AuthzId, RequesterId, Acc);
 insert_one(_Org, {orgname, _}, Acc) ->
@@ -181,9 +187,29 @@ insert_one(_Org, Item, Acc) ->
     Acc.
 
 %% client
-insert_one(Org, {{client, Name}, {Id, Data}}, AuthzId, ReqesterId, Acc) ->
-    InsertedType = process_client(Org, Name, Id, AuthzId, ReqesterId, Data),
-    dict:update_counter(InsertedType, 1, Acc);
+insert_one(Org, {{client, Name}, {Id, Data}}, AuthzId, RequesterId, Acc) ->
+    {PubKey, PubKeyVersion} = extract_client_key_info(Data),
+    IsValidator = is_validator(Org#org_info.org_name, Data),
+    IsAdmin = false, %% This is a OSC feature, false everywhere else
+    Client = #chef_client{
+      id = moser_utils:fix_chef_id(Id),
+      authz_id = AuthzId,
+      org_id = iolist_to_binary(Org#org_info.org_id),
+      name = Name,
+      validator = IsValidator,
+      admin = IsAdmin,
+      public_key = PubKey,
+      pubkey_version = PubKeyVersion
+     },
+    ObjWithDate = chef_object:set_created(Client, RequesterId),
+    try
+        {ok, 1} = chef_sql:create_client(ObjWithDate)
+    catch
+        error:E ->
+            ?debugFmt("~p~n",[Data]),
+            ?debugVal(E), ?debugVal(erlang:get_stacktrace())
+    end,
+    dict:update_counter(client, 1, Acc);
 %% Data bag item
 insert_one(Org, {{databag_item = Type, Id}, Data}, _AuthzId, RequesterId, Acc) ->
     %%    ?debugVal({Type, Id}),
@@ -291,33 +317,6 @@ process_databag(Org, Id, AuthzId, RequesterId, Data) ->
     {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
     databag.
 
-%%
-%% Client insertion
-%%
-process_client(Org, Name, Id, AuthzId, RequesterId, Data) ->
-    {PubKey, PubKeyVersion} = extract_client_key_info(Data),
-    IsValidator = is_validator(Org#org_info.org_name, Data),
-    IsAdmin = false, %% This is a OSC feature, false everywhere else
-    Client = #chef_client{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AuthzId,
-      org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name,
-      validator = IsValidator,
-      admin = IsAdmin,
-      public_key = PubKey,
-      pubkey_version = PubKeyVersion
-     },
-    ObjWithDate = chef_object:set_created(Client, RequesterId),
-    try
-        {ok, 1} = chef_sql:create_client(ObjWithDate)
-    catch
-        error:E ->
-            ?debugFmt("~p~n",[Data]),
-            ?debugVal(E), ?debugVal(erlang:get_stacktrace())
-    end,
-    client.
-
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that
     Client = ej:get({"clientname"}, Data),
@@ -363,7 +362,7 @@ extract_checksums(SegmentData) ->
 get_authz_info(_Org, _Type, unset_name, _Id) ->
     {unset, unset};
 get_authz_info(Org, Type, Name, Id) ->
-    {UserId, RequesterId} = get_user_side_auth_id(Org,Type,Name,Id),
+    {UserId, RequesterId} = get_user_side_auth_id(Org, Type, Name, Id),
     AuthId = case user_to_auth(Org, UserId) of
               {ok, A} -> A;
               {fail, _} ->

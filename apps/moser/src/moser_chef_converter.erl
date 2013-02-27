@@ -123,17 +123,22 @@ insert_databags(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org
 
 insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
     Name = name_for_object(Object),
-    {AuthzId, RequesterId} = get_authz_info(Org, databag, Name, Id),
-    Name = ej:get({<<"name">>}, Data),
-    DataBag = #chef_data_bag{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AuthzId,
-      org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name
-     },
-    ObjWithDate = chef_object:set_created(DataBag, RequesterId),
-    {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
-    dict:update_counter(databag, 1, Acc);
+    case get_authz_info(Org, databag, Name, Id) of
+        {AuthzId, RequesterId} ->
+            Name = ej:get({<<"name">>}, Data),
+            DataBag = #chef_data_bag{
+                         id = moser_utils:fix_chef_id(Id),
+                         authz_id = AuthzId,
+                         org_id = iolist_to_binary(Org#org_info.org_id),
+                         name = Name
+                        },
+            ObjWithDate = chef_object:set_created(DataBag, RequesterId),
+            {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
+            dict:update_counter(databag, 1, Acc);
+        not_found ->
+            %% ignore object if authz id not found
+            Acc
+    end;
 insert_databag(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 %%    RType = list_to_atom("SKIP_DB_" ++ atom_to_list(_Type)),
 %%    dict:update_counter(RType, 1, Acc);
@@ -184,8 +189,14 @@ id_for_object({{_Type, Id}, _}) ->
 insert_one(Org, {{Type, _IdOrName}, _} = Object, Acc) ->
     Name = name_for_object(Object),
     Id = id_for_object(Object),
-    {AuthzId, RequesterId} = get_authz_info(Org, Type, Name, Id),
-    insert_one(Org, Object, AuthzId, RequesterId, Acc);
+    case get_authz_info(Org, Type, Name, Id) of
+        {AuthzId, RequesterId} ->
+            insert_one(Org, Object, AuthzId, RequesterId, Acc);
+        not_found ->
+            %% ignore object with missing authz id since such an object cannot be accessed
+            %% prior to migration.
+            Acc
+    end;
 insert_one(_Org, {orgname, _}, Acc) ->
     %% orgs are ignored for now
     Acc;
@@ -225,7 +236,7 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, _AuthzId, RequesterId, Acc) -
     RawData = ej:get({<<"raw_data">>}, Data),
     DataBagName = ej:get({<<"data_bag">>}, Data),
     ItemName = ej:get({<<"raw_data">>,<<"id">>}, Data),
-    {_AId, RequesterId} = get_authz_info(Org, Type, DataBagName, Id),
+    %% FIXME: shouldn't this be gzipp'ed
     SerializedObject = jiffy:encode(RawData),
     DataBagItem = #chef_data_bag_item{
       id = moser_utils:fix_chef_id(Id),
@@ -352,17 +363,18 @@ extract_checksums(SegmentData) ->
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
 get_authz_info(_Org, _Type, unset_name, _Id) ->
+    %% TODO: should this be not_found?
     {unset, unset};
 get_authz_info(Org, Type, Name, Id) ->
     {UserId, RequesterId} = get_user_side_auth_id(Org, Type, Name, Id),
     AuthId = case user_to_auth(Org, UserId) of
-              {ok, A} -> A;
-              {fail, _} ->
-                  Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
-                                                       [Org#org_info.org_name, Type, Name, Id])),
-                  ?debugFmt("~s", [Msg]),
-                  throw({fatal, Msg})
-          end,
+                 {ok, A} -> A;
+                 {fail, _} ->
+                     Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
+                                                          [Org#org_info.org_name, Type, Name, Id])),
+                     ?debugFmt("~s", [Msg]),
+                     not_found
+             end,
     case RequesterId of
         clone -> {AuthId, AuthId};
         _  -> {AuthId,  RequesterId}

@@ -163,7 +163,10 @@ name_for_object({{Type, _Id}, Data}) when Type =:= role;
                                           Type =:= databag ->
     ej:get({"name"}, Data);
 name_for_object({{cookbook_version, _Id}, Data}) ->
-    ej:get({"cookbook_name"}, Data).
+    ej:get({"cookbook_name"}, Data);
+name_for_object({{_Type, _Id}, _Data}) ->
+    unset_name.
+
 
 insert_one(Org, {{Type, Id}, _} = Object, Acc) ->
     Name = name_for_object(Object),
@@ -350,6 +353,8 @@ extract_checksums(SegmentData) ->
 
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
+get_authz_info(_Org, _Type, unset_name, _Id) ->
+    {unset, unset};
 get_authz_info(Org, Type, Name, Id) ->
     {UserId, RequesterId} = get_user_side_auth_id(Org,Type,Name,Id),
     AuthId = case user_to_auth(Org, UserId) of

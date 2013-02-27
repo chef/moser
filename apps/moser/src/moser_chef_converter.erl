@@ -124,8 +124,16 @@ insert_databags(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org
 insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
     Name = name_for_object(Object),
     {AuthzId, RequesterId} = get_authz_info(Org, databag, Name, Id),
-    InsertedType = process_databag(Org, Id, AuthzId, RequesterId, Data),
-    dict:update_counter(InsertedType, 1, Acc);
+    Name = ej:get({<<"name">>}, Data),
+    DataBag = #chef_data_bag{
+      id = moser_utils:fix_chef_id(Id),
+      authz_id = AuthzId,
+      org_id = iolist_to_binary(Org#org_info.org_id),
+      name = Name
+     },
+    ObjWithDate = chef_object:set_created(DataBag, RequesterId),
+    {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
+    dict:update_counter(databag, 1, Acc);
 insert_databag(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 %%    RType = list_to_atom("SKIP_DB_" ++ atom_to_list(_Type)),
 %%    dict:update_counter(RType, 1, Acc);
@@ -300,22 +308,6 @@ insert_one(_Org, {orgname, _}, _AuthzId, _RequesterId, Acc) ->
 insert_one(_Org, Item, _AuthzId, _RequesterId, Acc) ->
     ?debugVal(Item),
     Acc.
-
-
-%%
-%% Data bag insertion
-%%
-process_databag(Org, Id, AuthzId, RequesterId, Data) ->
-    Name = ej:get({<<"name">>}, Data),
-    DataBag = #chef_data_bag{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AuthzId,
-      org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name
-     },
-    ObjWithDate = chef_object:set_created(DataBag, RequesterId),
-    {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
-    databag.
 
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that

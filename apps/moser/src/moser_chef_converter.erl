@@ -171,7 +171,14 @@ name_for_object({{_Type, _Id}, _Data}) ->
 insert_one(Org, {{Type, Id}, _} = Object, Acc) ->
     Name = name_for_object(Object),
     {AuthzId, RequesterId} = get_authz_info(Org, Type, Name, Id),
-    insert_one(Org, Object, AuthzId, RequesterId, Acc).
+    insert_one(Org, Object, AuthzId, RequesterId, Acc);
+insert_one(_Org, {orgname, _}, Acc) ->
+    %% orgs are ignored for now
+    Acc;
+insert_one(_Org, Item, Acc) ->
+    %% ignore, but log other unhandled items
+    ?debugVal(Item),
+    Acc.
 
 %% client
 insert_one(Org, {{client, Name}, {Id, Data}}, AuthzId, ReqesterId, Acc) ->

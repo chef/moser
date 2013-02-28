@@ -99,7 +99,7 @@ insert_checksums(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 insert_checksums(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_checksums(_Org, Item, Acc) ->
-    lager:warn("unexpected item in insert_checksums: ~p", [Item]),
+    lager:warning("unexpected item in insert_checksums: ~p", [Item]),
     Acc.
 
 %%
@@ -133,7 +133,7 @@ insert_databag(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 insert_databag(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_databag(_Org, Item, Acc) ->
-    lager:warn("unexpected item in insert_databag ~p", [Item]),
+    lager:warning("unexpected item in insert_databag ~p", [Item]),
     Acc.
 
 insert_objects(#org_info{org_name = OrgName,
@@ -197,7 +197,7 @@ insert_one(_Org, {orgname, _}, Acc) ->
     Acc;
 insert_one(_Org, Item, Acc) ->
     %% ignore, but log other unhandled items
-    lager:warn("unexpected item in insert_one ~p", [Item]),
+    lager:warning("unexpected item in insert_one ~p", [Item]),
     Acc.
 
 %% client
@@ -289,7 +289,7 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc
 %% May want a final check with Adam and CB to make sure there isn't some secret stuff, but it appears
 %% we can ignore them for now.
 insert_one(Org, {{cookbook_old = Type, Id}, Data}, _AuthzId, _RequesterId, Acc) ->
-    lager:warn(?LOG_META(Org), "cookbook_old ~p", [{Id, Data}]),
+    lager:warning(?LOG_META(Org), "cookbook_old ~p", [{Id, Data}]),
     dict:update_counter(Type, 1, Acc);
 %% Handled in pass zero
 insert_one(_Org, {{checksum, _Id}, _}, _AuthzId, _RequesterId, Acc) ->
@@ -305,7 +305,7 @@ insert_one(_Org, {{Type, _Id}, _Data} = _Item, _AuthzId, _RequesterId, Acc) ->
 insert_one(_Org, {orgname, _}, _AuthzId, _RequesterId, Acc) ->
     Acc;
 insert_one(Org, Item, _AuthzId, _RequesterId, Acc) ->
-    lager:warn(?LOG_META(Org), "unexpected item in insert_one: ~p", [Item]),
+    lager:warning(?LOG_META(Org), "unexpected item in insert_one: ~p", [Item]),
     Acc.
 
 is_validator(OrgName, Data) ->
@@ -324,7 +324,7 @@ extract_client_key_info(Data) ->
         undefined ->
             case ej:get({"public_key"}, Data) of
                 undefined ->
-                    lager:warn("missing public_key for client: ~p", [Data]),
+                    lager:warning("missing public_key for client: ~p", [Data]),
                     %% figure out something better
                     {undefined, undefined};
                 PubKey ->
@@ -360,7 +360,7 @@ get_authz_info(Org, Type, Name, Id) ->
                  {fail, _} ->
                      Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
                                                           [Org#org_info.org_name, Type, Name, Id])),
-                     lager:warn(?LOG_META(Org), Msg),
+                     lager:warning(?LOG_META(Org), Msg),
                      not_found
              end,
     case RequesterId of

@@ -156,7 +156,14 @@ insert_databag(_Org, Item, Acc) ->
 insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org, Totals) ->
     {Time, Totals1} = timer:tc(
                        ets, foldl, [fun(Item,Acc) ->
-                                            insert_one(Org, Item, Acc)
+                                            try
+                                                insert_one(Org, Item, Acc)
+                                            catch
+                                                Error:Why ->
+                                                    lager:error("~p (~p) unable to in insert item {~p, ~p, ~p}",
+                                                                [Name, Guid, Item, Error, Why]),
+                                                    Acc
+                                            end
                                     end,
                                     Totals, Chef] ),
     io:format("Insert Objects Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),

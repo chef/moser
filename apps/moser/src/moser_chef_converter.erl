@@ -74,16 +74,8 @@ insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
 %%
 %% Checksums need to be inserted before other things
 %%
-insert_checksums(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org, Totals) ->
-    {Time, Totals1} = timer:tc(
-                       ets, foldl, [fun(Item,Acc) ->
-                                            insert_checksums(Org, Item, Acc)
-                                    end,
-                                    Totals, Chef] ),
-%%    io:format("Insert Checksums Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
-    io:format("Database ~s (org ~s) checksum insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]),
-    {Time, Totals1}.
-
+insert_checksums(#org_info{} = Org, Totals) ->
+    insert_objects(Org, Totals, fun insert_checksums/3, "checksum").
 
 insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     %%    ?debugVal({Type, Name}),
@@ -111,15 +103,8 @@ insert_checksums(_Org, Item, Acc) ->
 %%
 %% Databags need to be inserted before other things
 %%
-insert_databags(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org, Totals) ->
-    {Time, Totals1} = timer:tc(
-                       ets, foldl, [fun(Item,Acc) ->
-                                            insert_databag(Org, Item, Acc)
-                                    end,
-                                    Totals, Chef] ),
-%%    io:format("Insert Databags Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
-    io:format("Database ~s (org ~s) databag insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]),
-    {Time, Totals1}.
+insert_databags(#org_info{} = Org, Totals) ->
+    insert_objects(Org, Totals, fun insert_databag/3, "databag").
 
 insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
     Name = name_for_object(Object),
@@ -149,28 +134,29 @@ insert_databag(_Org, Item, Acc) ->
     ?debugVal(Item),
     Acc.
 
-
-%%
-%% Insert remaining objects
-%%
-insert_objects(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef} = Org, Totals) ->
-    {Time, Totals1} = timer:tc(
-                       ets, foldl, [fun(Item,Acc) ->
-                                            try
-                                                insert_one(Org, Item, Acc)
-                                            catch
-                                                Error:Why ->
-                                                    lager:error("~p (~p) unable to in insert item {~p, ~p, ~p}",
-                                                                [Name, Guid, Item, Error, Why]),
-                                                    Acc
-                                            end
-                                    end,
-                                    Totals, Chef] ),
-    io:format("Insert Objects Stats: ~p~n", [lists:sort(dict:to_list(Totals1))]),
-    io:format("Database ~s (org ~s) all others insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]),
+insert_objects(#org_info{org_name = OrgName,
+                         org_id = OrgId,
+                         chef_ets = Chef} = Org,
+               Totals, InsertFun, Type) ->
+    Inserter = fun(Item, Acc) ->
+                       try
+                           InsertFun(Org, Item, Acc)
+                       catch
+                           Error:Why ->
+                               lager:error("~p (~p) unable to in insert ~s item {~p, ~p, ~p}",
+                                           [OrgName, OrgId, Type, Item, Error, Why]),
+                               Acc
+                       end
+               end,
+    {Time, Totals1} = timer:tc(fun() -> ets:foldl(Inserter, Totals, Chef) end),
+    io:format("~p (~p) Insert ~s Stats: ~p~n", [OrgName, OrgId, Type,
+                                                lists:sort(dict:to_list(Totals1))]),
+    io:format("~p (~p) ~s insertions took ~f seconds~n",
+              [OrgName, OrgId, Type, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 
-
+insert_objects(#org_info{} = Org, Totals) ->
+    insert_objects(Org, Totals, fun insert_one/3, "object").
 
 %% @doc Return the name of a Chef object given `{{Type, IdOrName}, Data}'.  The `Data' value
 %% will either be the object EJSON or for clients `{Id, Ejson}'.

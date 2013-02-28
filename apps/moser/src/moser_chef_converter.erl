@@ -57,17 +57,22 @@
                      "data_bag_items",
                      "data_bags"]).
 
+%% we need this as a macro because lager uses a parse transform and can't handle a function
+%% call that returns the metadata proplist :(
+-define(LOG_META(O),
+        [{org_name, O#org_info.org_name}, {org_id, O#org_info.org_id}]).
+
 insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     try
         {Time0, Totals0} = insert_checksums(Org, dict:new()),
         {Time1, Totals1} = insert_databags(Org, Totals0),
         {Time2, _} = insert_objects(Org, Totals1),
         TotalTime = Time0 + Time1 + Time2,
-        io:format("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(TotalTime)]),
+        lager:info("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(TotalTime)]),
         {ok, TotalTime}
     catch
         error:E ->
-            ?debugFmt("~p~n~p~n", [E,erlang:get_stacktrace()]),
+            lager:error("~p~n~p~n", [E,erlang:get_stacktrace()]),
             {error, E}
     end.
 
@@ -78,10 +83,7 @@ insert_checksums(#org_info{} = Org, Totals) ->
     insert_objects(Org, Totals, fun insert_checksums/3, "checksum").
 
 insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
-    %%    ?debugVal({Type, Name}),
-    %%    ?debugFmt("~p~n",[Data]),
     OrgId = moser_utils:get_org_id(Org),
-    %%    ?debugVal(OrgId),
     Checksum = ej:get({"checksum"}, Data),
     case sqerl:statement(insert_checksum, [OrgId, Checksum], count) of
         {ok, 1} ->
@@ -97,7 +99,7 @@ insert_checksums(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 insert_checksums(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_checksums(_Org, Item, Acc) ->
-    ?debugVal(Item),
+    lager:warn("unexpected item in insert_checksums: ~p", [Item]),
     Acc.
 
 %%
@@ -131,7 +133,7 @@ insert_databag(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
 insert_databag(_Org, {orgname,_}, Acc) ->
     Acc;
 insert_databag(_Org, Item, Acc) ->
-    ?debugVal(Item),
+    lager:warn("unexpected item in insert_databag ~p", [Item]),
     Acc.
 
 insert_objects(#org_info{org_name = OrgName,
@@ -149,10 +151,10 @@ insert_objects(#org_info{org_name = OrgName,
                        end
                end,
     {Time, Totals1} = timer:tc(fun() -> ets:foldl(Inserter, Totals, Chef) end),
-    io:format("~p (~p) Insert ~s Stats: ~p~n", [OrgName, OrgId, Type,
-                                                lists:sort(dict:to_list(Totals1))]),
-    io:format("~p (~p) ~s insertions took ~f seconds~n",
-              [OrgName, OrgId, Type, moser_utils:us_to_secs(Time)]),
+    lager:info(?LOG_META(Org), "~p (~p) Insert ~s Stats: ~p~n",
+               [OrgName, OrgId, Type, lists:sort(dict:to_list(Totals1))]),
+    lager:info(?LOG_META(Org), "~p (~p) ~s insertions took ~f seconds~n",
+               [OrgName, OrgId, Type, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 
 insert_objects(#org_info{} = Org, Totals) ->
@@ -195,7 +197,7 @@ insert_one(_Org, {orgname, _}, Acc) ->
     Acc;
 insert_one(_Org, Item, Acc) ->
     %% ignore, but log other unhandled items
-    ?debugVal(Item),
+    lager:warn("unexpected item in insert_one ~p", [Item]),
     Acc.
 
 %% client
@@ -218,14 +220,12 @@ insert_one(Org, {{client, Name}, {Id, Data}}, AuthzId, RequesterId, Acc) ->
         {ok, 1} = chef_sql:create_client(ObjWithDate)
     catch
         error:E ->
-            ?debugFmt("~p~n",[Data]),
-            ?debugVal(E), ?debugVal(erlang:get_stacktrace())
+            lager:error(?LOG_META(Org), "create_client failed ~p",
+                        [{Data, E, erlang:get_stacktrace()}])
     end,
     dict:update_counter(client, 1, Acc);
 %% Data bag item
 insert_one(Org, {{databag_item = Type, Id}, Data}, _AuthzId, RequesterId, Acc) ->
-    %%    ?debugVal({Type, Id}),
-    %%    ?debugFmt("~p~n",[Data]),
     RawData = ej:get({<<"raw_data">>}, Data),
     DataBagName = ej:get({<<"data_bag">>}, Data),
     ItemName = ej:get({<<"raw_data">>,<<"id">>}, Data),
@@ -242,10 +242,10 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, _AuthzId, RequesterId, Acc) -
     case chef_sql:create_data_bag_item(ObjWithDate) of
         {ok, 1} ->
             ok;
-        {foreign_key, Msg} ->
-            ?debugFmt("Error inserting ~s, ~s ~n~p~n", [Type, Msg, ObjWithDate]);
-        {conflict, Msg} ->
-            ?debugFmt("Error inserting ~s, ~s ~n~p~n", [Type, Msg, ObjWithDate])
+        {Key, Msg} when Key =:= foreign_key;
+                        Key =:= conflict ->
+            lager:error(?LOG_META(Org), "create_data_bag_item failed: ~p",
+                        [{Key, Msg, ObjWithDate}])
     end,
     dict:update_counter(Type, 1, Acc);
 %% Role
@@ -278,23 +278,18 @@ insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     dict:update_counter(Type, 1, Acc);
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
-%    ?debugVal({Type, Id}),
-%    ?debugFmt("~p~n",[moser_utils:list_ej_keys(Data)]),
     _Checksums = extract_all_checksums(?SEGMENTS, Data),
-%    ?debugFmt("~p~n", [lists:usort(Checksums)]),
     BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AuthzId, Data),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
-%    ?debugFmt("~p~n",[ObjWithDate]),
     {ok, 1} = chef_sql:create_cookbook_version(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
 %% Old style cookbooks
 %% These use the "Cookbook" chef_type. As best we can tell, this isn't used anywhere in the OHC code.
 %% May want a final check with Adam and CB to make sure there isn't some secret stuff, but it appears
 %% we can ignore them for now.
-insert_one(_Org, {{cookbook_old = Type, _Id}, _Data}, _AuthzId, _RequesterId, Acc) ->
-    %%?debugVal({_Type, _Id}),
-    %%?debugFmt("~p~n",[_Data]),
+insert_one(Org, {{cookbook_old = Type, Id}, Data}, _AuthzId, _RequesterId, Acc) ->
+    lager:warn(?LOG_META(Org), "cookbook_old ~p", [{Id, Data}]),
     dict:update_counter(Type, 1, Acc);
 %% Handled in pass zero
 insert_one(_Org, {{checksum, _Id}, _}, _AuthzId, _RequesterId, Acc) ->
@@ -309,8 +304,8 @@ insert_one(_Org, {{Type, _Id}, _Data} = _Item, _AuthzId, _RequesterId, Acc) ->
 %% Orgname object should match org name
 insert_one(_Org, {orgname, _}, _AuthzId, _RequesterId, Acc) ->
     Acc;
-insert_one(_Org, Item, _AuthzId, _RequesterId, Acc) ->
-    ?debugVal(Item),
+insert_one(Org, Item, _AuthzId, _RequesterId, Acc) ->
+    lager:warn(?LOG_META(Org), "unexpected item in insert_one: ~p", [Item]),
     Acc.
 
 is_validator(OrgName, Data) ->
@@ -329,7 +324,7 @@ extract_client_key_info(Data) ->
         undefined ->
             case ej:get({"public_key"}, Data) of
                 undefined ->
-                    ?debugFmt("~p~n",[Data]),
+                    lager:warn("missing public_key for client: ~p", [Data]),
                     %% figure out something better
                     {undefined, undefined};
                 PubKey ->
@@ -365,7 +360,7 @@ get_authz_info(Org, Type, Name, Id) ->
                  {fail, _} ->
                      Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
                                                           [Org#org_info.org_name, Type, Name, Id])),
-                     ?debugFmt("~s", [Msg]),
+                     lager:warn(?LOG_META(Org), Msg),
                      not_found
              end,
     case RequesterId of
@@ -391,8 +386,8 @@ get_user_side_auth_id(#org_info{auth_ets=Auth}, role, Name, _Id) ->
     get_user_side_auth_id_generic(Auth, role, Name);
 get_user_side_auth_id(#org_info{auth_ets=Auth}, environment = Type, Name, _Id) ->
     get_user_side_auth_id_generic(Auth, Type, Name);
-get_user_side_auth_id(_Org, Type, Name, Id) ->
-    ?debugFmt("Can't process for type ~s, ~s ~s", [Type, Name, Id]),
+get_user_side_auth_id(Org, Type, Name, Id) ->
+    lager:error(?LOG_META(Org), "Can't process for type ~s, ~s ~s", [Type, Name, Id]),
     {bad_id, <<"BadId">>}.
 
 get_user_side_auth_id_generic(Auth, Type, Name) ->
@@ -402,7 +397,7 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
             {UserId, Requester};
         [] ->
             %% TODO: Fix this to hard fail on error,
-            ?debugFmt("Can't find auth info for ~s, ~s~n", [Type, Name]),
+            lager:error("Can't find auth info for ~s, ~s. Returning DEADBEEF", [Type, Name]),
             {<<"DEADBEEF">>, <<"DEADD0G">>}
     end.
 
@@ -414,7 +409,7 @@ sqerl_delete_helper(Table, Where) ->
         {ok, X} ->
             {ok, Table, X};
         {error, Error} ->
-            ?debugFmt("Cleanup error ~p ~p ~p", [Error, Table, Where]),
+            lager:error("Cleanup error ~p ~p ~p", [Error, Table, Where]),
             {error, Table, Error}
     end.
 
@@ -426,7 +421,8 @@ delete_table_for_org("cookbook_versions", OrgId) ->
         {ok, X} ->
             {ok, "cookbook_versions", X};
         {error, Error} ->
-            ?debugFmt("Cleanup error ~p ~p ~p", [Error, "cookbook_versions", Stmt]),
+            lager:error("Cleanup error ~p ~p ~p",
+                        [Error, "cookbook_versions", Stmt]),
             {error, "cookbook_versions", Error}
     end;
 delete_table_for_org(Table,OrgId) ->

@@ -145,7 +145,7 @@ insert_objects(#org_info{org_name = OrgName,
                            InsertFun(Org, Item, Acc)
                        catch
                            Error:Why ->
-                               lager:error("~p (~p) unable to in insert ~s item {~p, ~p, ~p}",
+                               lager:error("~p (~p) unable to insert ~s item {~p, ~p, ~p}",
                                            [OrgName, OrgId, Type, Item, Error, Why]),
                                Acc
                        end

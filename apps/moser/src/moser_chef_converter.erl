@@ -351,22 +351,24 @@ extract_checksums(SegmentData) ->
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
 get_authz_info(_Org, _Type, unset_name, _Id) ->
-    %% TODO: should this be not_found?
-    {unset, unset};
+    not_found;
 get_authz_info(Org, Type, Name, Id) ->
     {UserId, RequesterId} = get_user_side_auth_id(Org, Type, Name, Id),
-    AuthId = case user_to_auth(Org, UserId) of
-                 {ok, A} -> A;
-                 {fail, _} ->
-                     Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
-                                                          [Org#org_info.org_name, Type, Name, Id])),
-                     lager:warning(?LOG_META(Org), Msg),
-                     not_found
-             end,
-    case RequesterId of
-        clone -> {AuthId, AuthId};
-        _  -> {AuthId,  RequesterId}
+    case user_to_auth(Org, UserId) of
+        {ok, AuthId} ->
+            case RequesterId of
+                clone ->
+                    {AuthId, AuthId};
+                _  ->
+                    {AuthId,  RequesterId}
+            end;
+        {fail, _} ->
+            Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
+                                                 [Org#org_info.org_name, Type, Name, Id])),
+            lager:warning(?LOG_META(Org), Msg),
+            not_found
     end.
+
 
 %%
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
@@ -396,11 +398,13 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
             Requester = ej:get({"requester_id"}, Data),
             {UserId, Requester};
         [] ->
-            %% TODO: Fix this to hard fail on error,
-            lager:error("Can't find auth info for ~s, ~s. Returning DEADBEEF", [Type, Name]),
-            {<<"DEADBEEF">>, <<"DEADD0G">>}
+            lager:error("Can't find auth info for ~s, ~s. Returning not_found",
+                        [Type, Name]),
+            {not_found, not_found}
     end.
 
+user_to_auth(_, not_found) ->
+    {fail, not_found};
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).
 

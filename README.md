@@ -78,13 +78,10 @@ Fails = [ PP || PP <- Out, IsFail(PP)].
 ```
 %% should only have to do this once?
 %% moser_acct_processor:process_account_file().
-> CL = moser_converter:get_chef_list(), length(CL).
-25564
-> CO = moser_converter:file_list_to_orginfo(CL), length(CO).
-25315
-> CO2 = moser_converter:filter_out_precreated_orgs(CO), length(CO2).
-16572
-> {T, R} = timer:tc(fun() -> moser_converter:process_insert_orgs(CO2) end).
+CL = moser_converter:get_chef_list(), length(CL).
+CO = moser_converter:file_list_to_orginfo(CL), length(CO).
+CO2 = moser_converter:filter_out_precreated_orgs(CO), length(CO2).
+{T, R} = timer:tc(fun() -> moser_converter:process_insert_orgs(CO2) end).
 > X = lists:zip(R,CO2)
 > IsFail = fun({{ok, _},_}) -> false; (_) -> true end.
 > Fails = [ PP || PP <- Out, IsFail(PP)].

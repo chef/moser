@@ -1,0 +1,9 @@
+{
+    "name": "moser_test",
+    "description": "An environment for moser correctness testing",
+    "cookbook_versions": {},
+    "json_class": "Chef::Environment",
+    "chef_type": "environment",
+    "default_attributes": {},
+    "override_attributes": {}
+}

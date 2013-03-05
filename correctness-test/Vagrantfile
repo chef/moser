@@ -1,0 +1,17 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant::Config.run do |config|
+  config.vm.box = "opscode-ubuntu-10.04"
+
+  config.vm.network :hostonly, "33.33.33.100"
+
+  config.vm.provision :chef_client do |chef|
+    chef.chef_server_url = "https://33.33.33.10/organizations/ponyville"
+    chef.validation_key_path = "~/oc/opscode-dev-vm/users/ponyville-validator.pem"
+    chef.validation_client_name = "ponyville-validator"
+    chef.log_level = :debug
+    chef.run_list = ["role[moser_test]"]
+  end
+
+end

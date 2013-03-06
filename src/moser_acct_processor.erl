@@ -174,7 +174,7 @@ user_to_auth(_, bad_id) ->
 user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
     case dets:lookup(U2A, Id) of
         [{Id,V}] -> {ok, V};
-        [] -> {fail, <<"bad_authz_id">>}
+        [] -> {fail, authz_id_not_found}
     end.
 
 get_org_guid_by_name(Name,

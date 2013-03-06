@@ -65,15 +65,20 @@ process_couch_file(#org_info{org_name=OrgName, db_name=DbName} = OrgInfo) ->
                      AccIn
              end,
     decouch_reader:open_process_all(DbName, IterFn),
+    %% The orgname key is filled from the last written group record using the group's
+    %% orgname field. At least in the case of an org rename, this will not match. So we
+    %% check and log mismatch, but ignore it.
     OrgNameFromFile = case ets:lookup(Org#org_info.chef_ets, orgname) of
                           [] -> unknown;
                           [{orgname, O}] -> O
                       end,
     case OrgName of
-        OrgNameFromFile -> {ok, Org};
+        OrgNameFromFile ->
+            {ok, Org};
         _ ->
-            lager:error("OrgName provided (~s) doesn't match OrgName (~s) in the file ~s", [OrgName, OrgNameFromFile, DbName]),
-            {error, "OrgName mismatch"}
+            lager:error("OrgName provided (~s) doesn't match OrgName (~s) in the file ~s (via groups)",
+                        [OrgName, OrgNameFromFile, DbName]),
+            {ok, Org}
     end.
 
 cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth_ets = Auth, start_time = Start}) ->

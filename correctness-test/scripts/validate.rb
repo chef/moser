@@ -3,6 +3,9 @@
 
 ROLE_CACHE = {}
 
+Chef::Config.http_retry_delay 1
+Chef::Config.http_retry_count 3
+
 class Chef::RunList::RunListExpansionFromAPI
   def fetch_role(name, included_by)
     JSON.parse(ROLE_CACHE[name] ||= rest.get_rest("roles/#{name}").to_json)
@@ -15,7 +18,7 @@ class Chef::RunList::RunListExpansionFromAPI
   end
 end
 
-@errfile = File.new("errors.csv", "w")
+@errfile = File.open("errors.csv", "a")
 @errfile.sync = true
 
 # this assumes that the chef config is pointing at the root of
@@ -30,7 +33,15 @@ end
 puts "fetching orgs..."
 orgs = api.get("organizations").keys
 
-orgs[0..100].each do |org|
+start_org = ARGV.last
+start_index = orgs.index(start_org) || 0
+
+(start_index..orgs.length - 1).each do |i|
+  org = orgs[i]
+
+  # skip pre-created ogs (naiive)
+  next if org =~ /^[a-z]{20}$/
+
   # reset
   # - clear the cache
   # - reset the configured server url
@@ -39,17 +50,17 @@ orgs[0..100].each do |org|
   ROLE_CACHE.clear
   Chef::Config.chef_server_url = "#{@server_api}/organizations/#{org}"
 
-  puts "resolviing #{org}..."
+  puts "resolving #{org}..."
   nodes = api.get "nodes"
 
   results = nodes.keys.inject({}) do |res, node_name|
-    node_data = api.get "nodes/#{node_name}"
     begin
+      node_data = api.get "nodes/#{node_name}"
       node_recipes = node_data.expand!.recipes.with_version_constraints_strings
-    rescue ArgumentError => e
+    rescue Exception => e
       @errfile.puts([org,
                      node_name,
-                     "ArgumentError",
+                     e.class.to_s,
                      e.message].join(", "))
       res[node_name] = "ERROR"
       next res

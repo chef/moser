@@ -34,14 +34,21 @@ Run in console with
 sudo rel/moser/bin/moser console
 ```
 
+### Single-org Migration ###
+
 First things first, load the opscode_account database into DETS tables:
 ```
 moser_acct_processor:process_account_file().
 ```
 
+If you've already loaded the account databases in a previous iteration, you can reload them with:
+```
+moser_acct_processor:open_account().
+```
+
 The next step is to process the organization database into an ETS table:
 ```
-f(Db), Db = moser_chef_processor:process_organization("ponyville").
+f(Org), {ok, Org} = moser_chef_processor:process_organization(<<"ponyville">>).
 ```
 
 Will return an org_info record for that :
@@ -56,7 +63,7 @@ Will return an org_info record for that :
 
 To do the db insert:
 ```
-moser_chef_converter:insert(Db).
+moser_chef_converter:insert(Org).
 ```
 
 ### Test sweep ###

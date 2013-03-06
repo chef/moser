@@ -55,7 +55,7 @@ get_orgid_from_dbname(DbName) ->
     OrgId.
 
 get_dbname_from_orgid(OrgId) ->
-    FileName = lists:flatten(["chef_", OrgId, ".couch"]),
+    FileName = iolist_to_binary(["chef_", OrgId, ".couch"]),
     filename:join([moser_converter:get_couch_path(),FileName]).
 
 list_ej_keys({Ej}) ->

@@ -279,7 +279,23 @@ insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     _Checksums = extract_all_checksums(?SEGMENTS, Data),
-    BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AuthzId, Data),
+    %% fixup potentially old version constraint strings before inserting into sql
+    ConstraintKeys = [<<"dependencies">>,
+                      <<"platforms">>,
+                      <<"recommendations">>,
+                      <<"suggestions">>,
+                      <<"conflicting">>,
+                      <<"replacing">>,
+                      <<"providing">>],
+    Fixer = fun(Key, Accum) ->
+                    Constraints = ej:get({Key},Accum),
+                    Fixed = clean_old_array_dependencies(Constraints),
+                    ej:set({Key}, Accum, Fixed)
+            end,
+    Metadata = ej:get({<<"metadata">>}, Data),
+    FixedMeta = lists:foldl(Fixer, Metadata, ConstraintKeys),
+    FixedData = ej:set({<<"metadata">>}, Data, FixedMeta),
+    BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AuthzId, FixedData),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
     {ok, 1} = chef_sql:create_cookbook_version(ObjWithDate),
@@ -317,6 +333,28 @@ is_validator(OrgName, Data) ->
             true;
         _ ->
             false
+    end.
+
+clean_old_array_dependencies(Deps) ->
+    %% {[{<<"akey">>, Constraint}]}
+    %% Constraint may be [] or [VC] or [VC1, VC2,...]
+    %% Multiple constraints is an error
+    %% [VC] -> VC
+    %% [] -> ">= 0.0.0"
+    {DepList} = Deps,
+    {[ {K, clean_constraint(VC)} || {K, VC} <- DepList ]}.
+
+clean_constraint([]) ->
+    <<">= 0.0.0">>;
+clean_constraint([VC]) ->
+    clean_constraint(VC);
+clean_constraint(VC) when is_binary(VC) ->
+    case chef_object:parse_constraint(VC) of
+        error ->
+            %% what now?
+            error({invalid_constraint, VC});
+        {_, _} ->
+            VC
     end.
 
 extract_client_key_info(Data) ->

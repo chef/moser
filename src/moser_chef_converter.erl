@@ -60,7 +60,8 @@
 %% we need this as a macro because lager uses a parse transform and can't handle a function
 %% call that returns the metadata proplist :(
 -define(LOG_META(O),
-        [{org_name, O#org_info.org_name}, {org_id, O#org_info.org_id}]).
+        [{org_name, binary_to_list(O#org_info.org_name)},
+         {org_id, binary_to_list(O#org_info.org_id)}]).
 
 insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     try

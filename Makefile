@@ -79,26 +79,6 @@ plt_deps:
 dialyze: compile $(DEPS_PLT)
 	dialyzer -nn --plt $(DEPS_PLT) -Wunmatched_returns -Werror_handling -Wrace_conditions -r apps/pushy/ebin -I deps
 
-rel: compile rel/moser
-rel/moser:
-	@cd rel;$(REBAR) generate overlay_vars=db_vars.config
-
-relclean:
-	@rm -rf rel/moser
-
-devrel: rel
-	@/bin/echo -n Symlinking deps and apps into release
-	@$(foreach lib,$(wildcard apps/* deps/*), /bin/echo -n .;rm -rf rel/moser/lib/$(shell basename $(lib))-* \
-           && ln -sf $(abspath $(lib)) rel/moser/lib;)
-	@/bin/echo done.
-	@/bin/echo  Run \'make update\' to pick up changes in a running VM.
-
-update: compile
-	@cd rel/moser;bin/moser restart
-
-update_app: compile_app
-	@cd rel/moser;bin/moser restart
-
 doc:
 	@rebar doc skip_deps=true
 

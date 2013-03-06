@@ -407,24 +407,27 @@ get_authz_info(Org, Type, Name, Id) ->
                 _  ->
                     {AuthId,  RequesterId}
             end;
-        {fail, _} ->
-            Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
-                                                 [Org#org_info.org_name, Type, Name, Id])),
-            lager:warning(?LOG_META(Org), Msg),
+        {fail, FailType} ->
+            Props = [{error_type, FailType} | ?LOG_META(Org)],
+            lager:warning(Props, "SKIPPING ~s ~s (~s) missing authz data",
+                          [Type, Name, Id]),
             not_found
     end.
 
-
-%%
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
 get_user_side_auth_id(#org_info{}, client, _Name, Id) ->
     %% Clients are special; they are their own mixlib auth docs
     {Id, clone};
 get_user_side_auth_id(#org_info{auth_ets=Auth}, cookbook_version, Name, _Id) ->
-    [{_, {UserId, Data}}] = ets:lookup(Auth, {cookbook, Name}),
-    Requester = ej:get({"requester_id"}, Data),
-    {UserId, Requester};
+    case ets:lookup(Auth, {cookbook, Name}) of
+        [{_, {UserId, Data}}] ->
+            ets:lookup(Auth, {cookbook, Name}),
+            Requester = ej:get({"requester_id"}, Data),
+            {UserId, Requester};
+        [] ->
+            {not_found, not_found}
+    end;
 get_user_side_auth_id(#org_info{auth_ets=Auth}, databag_item, Name, _Id) ->
     get_user_side_auth_id_generic(Auth, databag, Name);
 get_user_side_auth_id(#org_info{auth_ets=Auth}, databag, Name, _Id) ->
@@ -435,7 +438,7 @@ get_user_side_auth_id(#org_info{auth_ets=Auth}, environment = Type, Name, _Id) -
     get_user_side_auth_id_generic(Auth, Type, Name);
 get_user_side_auth_id(Org, Type, Name, Id) ->
     lager:error(?LOG_META(Org), "Can't process for type ~s, ~s ~s", [Type, Name, Id]),
-    {bad_id, <<"BadId">>}.
+    {not_found, not_found}.
 
 get_user_side_auth_id_generic(Auth, Type, Name) ->
     case ets:lookup(Auth, {Type, Name}) of
@@ -443,13 +446,11 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
             Requester = ej:get({"requester_id"}, Data),
             {UserId, Requester};
         [] ->
-            lager:error("Can't find auth info for ~s, ~s. Returning not_found",
-                        [Type, Name]),
             {not_found, not_found}
     end.
 
 user_to_auth(_, not_found) ->
-    {fail, not_found};
+    {fail, user_side_authz_not_found};
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).
 

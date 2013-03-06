@@ -299,8 +299,22 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc
     BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AuthzId, FixedData),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
-    {ok, 1} = chef_sql:create_cookbook_version(ObjWithDate),
-    dict:update_counter(Type, 1, Acc);
+    case chef_sql:create_cookbook_version(ObjWithDate) of
+        {error, invalid_checksum} ->
+            %% we'll see an invalid_checksum error if a cookbook_version object contains a
+            %% checksum that isn't in the checksums table. This means the cbv is broken
+            %% (perhaps as a result of using --purge). So we log and skip these.
+            Props = [{error_type, cookbook_version_missing_checksum}| ?LOG_META(Org)],
+            lager:warning(Props, "cookbook_version ~s (~s) SKIPPED missing checksums",
+                          [ej:get({"name"}, Data), Id]),
+            Acc;
+        {ok, 1} ->
+            dict:update_counter(Type, 1, Acc);
+        Error ->
+            lager:error(?LOG_META(Org), "cookbook_version ~s (~s) SKIPPED ~p",
+                        [ej:get({"name"}, Data), Id, Error]),
+            Acc
+    end;
 %% Old style cookbooks
 %% These use the "Cookbook" chef_type. As best we can tell, this isn't used anywhere in the OHC code.
 %% May want a final check with Adam and CB to make sure there isn't some secret stuff, but it appears

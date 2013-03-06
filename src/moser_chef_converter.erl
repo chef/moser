@@ -280,7 +280,6 @@ insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     dict:update_counter(Type, 1, Acc);
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
-    _Checksums = extract_all_checksums(?SEGMENTS, Data),
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,
                       <<"platforms">>,
@@ -379,14 +378,6 @@ extract_client_key_info(Data) ->
 %%
 %% Utility routines
 %%
-extract_all_checksums(Sections, Data) ->
-    lists:flatten([ extract_checksums(ej:get({Section}, Data)) || Section <- Sections ]).
-
-extract_checksums(undefined) ->
-    [];
-extract_checksums(SegmentData) ->
-    [ej:get({"checksum"}, Item) || Item <- SegmentData].
-
 
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple

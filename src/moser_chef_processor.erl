@@ -124,28 +124,23 @@ process_couch_item(Org, Key, Body) ->
     process_item_by_type(normalize_type_name(Type), Org, Key, Body),
     ok.
 
-%% Process special types
 process_item_by_type({_, node}, _Org, _Key, _Body) ->
     %% Node docs are to be ignored
     ok;
-%% Process Chef:: types
 process_item_by_type({chef, ChefType}, Org, Key, Body) ->
+    %% All Chef::* types go into the chef_ets table.
     ets:insert(Org#org_info.chef_ets, {{ChefType, Key}, Body});
-%% Process simple mixlib authorization types
-%% These just have the fields
-%% id, couchrest-type, name (or some variant), sometimes orgname, requester_id
 process_item_by_type({auth_simple, AuthType}, Org, Key, Body) ->
+    %% Simple mixlib authorization types just have the fields: id, couchrest-type, name (or
+    %% some variant), sometimes orgname, and requester_id.
     Name = get_name(AuthType, Body),
     ets:insert(Org#org_info.auth_ets, {{AuthType, Name}, {Key, Body}});
-%% More complex mixlib authorization types contain other data, or don't fit the schema
-%% So we need to put them into the chef db for further processing...
-%%
-%% Client: All the info is in the mixlib record; there is no Chef::Client object
 process_item_by_type({auth, client=AuthType}, Org, Key, Body) ->
+    %% Client: All the info is in the mixlib record; there is no Chef::Client object
     Name = get_name(AuthType, Body),
     ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
-%% Group: actor_and_group_names, groupname, orgname
 process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
+    %% Group: actor_and_group_names, groupname, orgname
     Name = get_name(AuthType, Body),
     %% NOTE: This is a dirty hack for the orgname and we should be ashamed of ourselves.
     %% TODO: RIP THIS OUT when we get things running

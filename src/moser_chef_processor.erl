@@ -136,10 +136,7 @@ process_item_by_type(design_doc, _, _, _) ->
 process_item_by_type(undefined, _Org, _Key, _Body) ->
     %% we've handled the types we care to migrate now, so unknown types are otherwise
     %% ignored.
-    ok;
-process_item_by_type(Type, Org, Key, Body) ->
-    ?debugVal(Type),
-    ets:insert(Org#org_info.chef_ets, {Key, Body}).
+    ok.
 
 normalize_type_name(<<"Mixlib::Authorization::Models::Client">>) -> {auth, client};
 normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> {auth_simple, container};

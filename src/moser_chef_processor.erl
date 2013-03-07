@@ -97,23 +97,27 @@ cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth
 %%% Internal functions
 %%%===================================================================
 
+%% @doc Return the type of a given document from couchdb. We determine the type taking the
+%% first type value found among a list of type keys: json_class, couchrest-type, and
+%% type. Documents should, in theory, have either json_class xor couchrest-type. The "type"
+%% key corresponds to some quick start objects which we ignore. Documents with unknown type
+%% return as 'undefined' and are later ignored. We select json_class first since this is the
+%% type of checksums, the most prolific object.
 extract_type(<<"_design/",_/binary>>, _Body) ->
     design_doc;
-extract_type(Key, Body) ->
-    JClass = ej:get({<<"json_class">>}, Body),
-    CRType = ej:get({<<"couchrest-type">>}, Body),
-    Type  = case {JClass, CRType} of
-                {undefined, undefined} -> undefined;
-                {undefined, T} -> T;
-                {T, undefined} -> T;
-                _ ->
-                    ?debugVal(Key),
-                    ?debugVal(Body),
-                    ?debugVal({JClass, CRType}),
-                    error
-            end,
-    Type.
+extract_type(_Key, Body) ->
+    TypeKeyPrefList = [<<"json_class">>, <<"couchrest-type">>, <<"type">>],
+    extract_first_type(TypeKeyPrefList, Body).
 
+extract_first_type([Key | Rest], Body) ->
+    case ej:get({Key}, Body) of
+        undefined ->
+            extract_first_type(Rest, Body);
+        Type ->
+            Type
+    end;
+extract_first_type([], _Body) ->
+    undefined.
 
 process_couch_item(Org, Key, Body) ->
     Type = extract_type(Key, Body),

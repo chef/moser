@@ -30,7 +30,7 @@
          cleanup_all/0]).
 
 -include("moser.hrl").
-
+-include_lib("ej/include/ej.hrl").
 -include_lib("chef_objects/include/chef_types.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
@@ -106,15 +106,11 @@ insert_databags(#org_info{} = Org, Totals) ->
 
 insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
     Name = name_for_object(Object),
+    {ok, _} = chef_data_bag:parse_binary_json(chef_json:encode(Data), create),
     case get_authz_info(Org, databag, Name, Id) of
         {AuthzId, RequesterId} ->
-            Name = ej:get({<<"name">>}, Data),
-            DataBag = #chef_data_bag{
-                         id = moser_utils:fix_chef_id(Id),
-                         authz_id = AuthzId,
-                         org_id = iolist_to_binary(Org#org_info.org_id),
-                         name = Name
-                        },
+            OrgId = moser_utils:get_org_id(Org),
+            DataBag = chef_object:new_record(chef_data_bag, OrgId, AuthzId, Name),
             ObjWithDate = chef_object:set_created(DataBag, RequesterId),
             {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
             dict:update_counter(databag, 1, Acc);
@@ -140,6 +136,15 @@ insert_objects(#org_info{org_name = OrgName,
                        try
                            InsertFun(Org, Item, Acc)
                        catch
+                           throw:{EType, EDetail} ->
+                               Props = [{error_type, EType} | ?LOG_META(Org)],
+                               lager:error(Props, "~s FAILED {~p, ~p, ~p}",
+                                           [Type, EDetail, Item, erlang:get_stacktrace()]),
+                               Acc;
+                           throw:#ej_invalid{msg = Msg, found = Found, key = Key} ->
+                               Props = [{error_type, Msg}| ?LOG_META(Org)],
+                               lager:error(Props, "~s insert FAILED {~p, ~p}", [Type, Key, Found]),
+                               Acc;
                            Error:Why ->
                                lager:error(?LOG_META(Org), "~s insert FAILED {~p:~p, ~p, ~p}",
                                            [Type,
@@ -197,44 +202,26 @@ insert_one(_Org, Item, Acc) ->
     lager:warning("unexpected item in insert_one ~p", [Item]),
     Acc.
 
-%% client
-insert_one(Org, {{client, Name}, {Id, Data}}, AuthzId, RequesterId, Acc) ->
-    {PubKey, PubKeyVersion} = extract_client_key_info(Data),
-    IsValidator = is_validator(Org#org_info.org_name, Data),
-    IsAdmin = false, %% This is a OSC feature, false everywhere else
-    Client = #chef_client{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AuthzId,
-      org_id = iolist_to_binary(Org#org_info.org_id),
-      name = Name,
-      validator = IsValidator,
-      admin = IsAdmin,
-      public_key = PubKey,
-      pubkey_version = PubKeyVersion
-     },
+insert_one(#org_info{org_name = OrgName} = Org,
+           {{client, Name}, {_Id, Data}},
+           AuthzId, RequesterId, Acc) ->
+    {ok, ClientData0} = chef_client:oc_parse_binary_json(chef_json:encode(Data),
+                                                         Name, not_found),
+    %% assign validator flag based on name: $OrgName-validator
+    ClientData = ej:set({<<"validator">>}, ClientData0,
+                        is_validator(OrgName, ClientData0)),
+    OrgId = moser_utils:get_org_id(Org),
+    Client = chef_object:new_record(chef_client, OrgId, AuthzId, ClientData),
     ObjWithDate = chef_object:set_created(Client, RequesterId),
-    try
-        {ok, 1} = chef_sql:create_client(ObjWithDate)
-    catch
-        error:E ->
-            lager:error(?LOG_META(Org), "create_client failed ~p",
-                        [{Data, E, erlang:get_stacktrace()}])
-    end,
+    {ok, 1} = chef_sql:create_client(ObjWithDate),
     dict:update_counter(client, 1, Acc);
-%% Data bag item
-insert_one(Org, {{databag_item = Type, Id}, Data}, _AuthzId, RequesterId, Acc) ->
-    RawData = ej:get({<<"raw_data">>}, Data),
-    DataBagName = ej:get({<<"data_bag">>}, Data),
-    ItemName = ej:get({<<"raw_data">>,<<"id">>}, Data),
-    %% FIXME: shouldn't this be gzipp'ed
-    SerializedObject = jiffy:encode(RawData),
-    DataBagItem = #chef_data_bag_item{
-      id = moser_utils:fix_chef_id(Id),
-      org_id = iolist_to_binary(Org#org_info.org_id),
-      data_bag_name = DataBagName,
-      item_name = ItemName,
-      serialized_object = SerializedObject
-     },
+insert_one(Org, {{databag_item = Type, _Id}, Data}, _AuthzId, RequesterId, Acc) ->
+    BagName = ej:get({<<"data_bag">>}, Data),
+    %% returns an unwrapped DBI
+    {ok, ItemData} = chef_data_bag_item:parse_binary_json(chef_json:encode(Data), create),
+    OrgId = moser_utils:get_org_id(Org),
+    DataBagItem = chef_object:new_record(chef_data_bag_item, OrgId, no_authz,
+                                         {BagName, ItemData}),
     ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
     case chef_sql:create_data_bag_item(ObjWithDate) of
         {ok, 1} ->
@@ -245,34 +232,23 @@ insert_one(Org, {{databag_item = Type, Id}, Data}, _AuthzId, RequesterId, Acc) -
                         [{Key, Msg, ObjWithDate}])
     end,
     dict:update_counter(Type, 1, Acc);
-%% Role
-insert_one(Org, {{role = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
-    Name = ej:get({<<"name">>}, Data),
-    SerializedObject = jiffy:encode(Data),
-    Role = #chef_role{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AuthzId,
-      org_id = moser_utils:get_org_id(Org),
-      name = Name,
-      serialized_object = SerializedObject
-     },
+insert_one(Org, {{role, _Id}, Data}, AuthzId, RequesterId, Acc) ->
+    %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for
+    %% validation and normalization.
+    {ok, RoleData} = chef_role:parse_binary_json(chef_json:encode(Data), create),
+    OrgId = moser_utils:get_org_id(Org),
+    Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
     ObjWithDate = chef_object:set_created(Role, RequesterId),
     {ok, 1} = chef_sql:create_role(ObjWithDate),
-    dict:update_counter(Type, 1, Acc);
+    dict:update_counter(role, 1, Acc);
 %% Environments
-insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
-    Name = ej:get({<<"name">>}, Data),
-    SerializedObject = jiffy:encode(Data),
-    Role = #chef_environment{
-      id = moser_utils:fix_chef_id(Id),
-      authz_id = AuthzId,
-      org_id = moser_utils:get_org_id(Org),
-      name = Name,
-      serialized_object = SerializedObject
-     },
-    ObjWithDate = chef_object:set_created(Role, RequesterId),
+insert_one(Org, {{environment, _Id}, Data}, AuthzId, RequesterId, Acc) ->
+    OrgId = moser_utils:get_org_id(Org),
+    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data)),
+    Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
+    ObjWithDate = chef_object:set_created(Env, RequesterId),
     {ok, 1} = chef_sql:create_environment(ObjWithDate),
-    dict:update_counter(Type, 1, Acc);
+    dict:update_counter(environment, 1, Acc);
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,
@@ -290,7 +266,18 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc
     Metadata = ej:get({<<"metadata">>}, Data),
     FixedMeta = lists:foldl(Fixer, Metadata, ConstraintKeys),
     FixedData = ej:set({<<"metadata">>}, Data, FixedMeta),
-    BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AuthzId, FixedData),
+    %% So cbv data is varied. Our validation function is built around the REST API where the
+    %% URL provides name and version. So here we extract two required attributes and do some
+    %% munging to get something consistent. If one of the required things is missing, we
+    %% should end up with an invalid name, but fail in the validation code to keep messages
+    %% consistent.
+    NameVer = ej:get({<<"name">>}, FixedData, <<"#Missing!Name-777.777.777">>),
+    Version = ej:get({<<"metadata">>, <<"version">>}, FixedData, <<"777.777.777">>),
+    Name = re:replace(NameVer, <<"-", Version/binary>>, <<"">>, [{return, binary}]),
+    {ok, CBVData} = chef_cookbook:parse_binary_json(chef_json:encode(FixedData),
+                                                    {Name, Version}),
+    OrgId = moser_utils:get_org_id(Org),
+    BaseRecord = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
     case chef_sql:create_cookbook_version(ObjWithDate) of
@@ -335,14 +322,8 @@ insert_one(Org, Item, _AuthzId, _RequesterId, Acc) ->
 
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that
-    Client = ej:get({"clientname"}, Data),
-    {ok, RE} = re:compile("^(?<Org>.*)-validator$"),  %% Figure out how to do this only once
-    case re:run(Client, RE, [{capture, ['Org'], binary}]) of
-        {match, [OrgName]} ->
-            true;
-        _ ->
-            false
-    end.
+    Name = ej:get({"clientname"}, Data),
+    Name =:= <<OrgName/binary, "-validator">>.
 
 clean_old_array_dependencies(Deps) ->
     %% {[{<<"akey">>, Constraint}]}
@@ -365,23 +346,6 @@ clean_constraint(VC) when is_binary(VC) ->
         {_, _} ->
             VC
     end.
-
-extract_client_key_info(Data) ->
-    case ej:get({"certificate"}, Data) of
-        undefined ->
-            case ej:get({"public_key"}, Data) of
-                undefined ->
-                    lager:warning("missing public_key for client: ~p", [Data]),
-                    %% figure out something better
-                    {undefined, undefined};
-                PubKey ->
-                    {PubKey, ?KEY_VERSION}
-            end;
-        PubKey ->
-            PubKeyVersion =  ?CERT_VERSION,
-            {PubKey, PubKeyVersion}
-    end.
-
 
 %%
 %% Utility routines

@@ -68,11 +68,9 @@ process_couch_file(#org_info{db_name=DbName} = OrgInfo) ->
     decouch_reader:open_process_all(DbName, IterFn),
     {ok, Org}.
 
-cleanup_org_info(#org_info{chef_ets = Chef, auth_ets = Auth, start_time = Start} = Org) ->
+cleanup_org_info(#org_info{chef_ets = Chef, auth_ets = Auth}) ->
     ets:delete(Chef),
-    ets:delete(Auth),
-    Time = timer:now_diff(os:timestamp(), Start),
-    lager:info(?LOG_META(Org), "COMPLETED in ~f secs", [moser_utils:us_to_secs(Time)]).
+    ets:delete(Auth).
 
 %%--------------------------------------------------------------------
 %% @doc

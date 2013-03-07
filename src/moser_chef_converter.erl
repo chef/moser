@@ -57,17 +57,18 @@
                      "data_bag_items",
                      "data_bags"]).
 
-insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
+insert(#org_info{} = Org) ->
     try
         {Time0, Totals0} = insert_checksums(Org, dict:new()),
         {Time1, Totals1} = insert_databags(Org, Totals0),
         {Time2, _} = insert_objects(Org, Totals1),
         TotalTime = Time0 + Time1 + Time2,
-        lager:info("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(TotalTime)]),
+        lager:info(?LOG_META(Org), "inserts complete ~.3f seconds",
+                   [moser_utils:us_to_secs(TotalTime)]),
         {ok, TotalTime}
     catch
         error:E ->
-            lager:error("~p~n~p~n", [E,erlang:get_stacktrace()]),
+            lager:error(?LOG_META(Org), "~p~n~p", [E, erlang:get_stacktrace()]),
             {error, E}
     end.
 
@@ -149,7 +150,7 @@ insert_objects(#org_info{org_name = OrgName,
     {Time, Totals1} = timer:tc(fun() -> ets:foldl(Inserter, Totals, Chef) end),
     lager:info(?LOG_META(Org), "~p (~p) Insert ~s Stats: ~p~n",
                [OrgName, OrgId, Type, lists:sort(dict:to_list(Totals1))]),
-    lager:info(?LOG_META(Org), "~p (~p) ~s insertions took ~f seconds~n",
+    lager:info(?LOG_META(Org), "~p (~p) ~s insertions took ~.3f seconds~n",
                [OrgName, OrgId, Type, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 

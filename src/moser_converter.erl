@@ -81,7 +81,7 @@ process_insert_org(OrgInfo) ->
                     moser_chef_processor:cleanup_org_info(OrgInfoFull)
                 end,
             Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
-            lager:info(?LOG_META(OrgInfo), "total time: ~f secs", [Time]),
+            lager:info(?LOG_META(OrgInfo), "COMPLETED ~.3f secs", [Time]),
             R;
         {error, Msg} ->
             {error, Msg}
@@ -116,5 +116,5 @@ process_insert_file(File) ->
             moser_chef_processor:cleanup_org_info(Db)
         end,
     Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
-    lager:info(?LOG_META(Db), "total time: ~f secs", [Time]),
+    lager:info(?LOG_META(Db), "total time: ~.3f secs", [Time]),
     R.

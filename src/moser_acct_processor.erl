@@ -100,15 +100,16 @@ process_account_item(Account, Key, Body) ->
     Type = moser_chef_processor:extract_type(Key, Body),
     case Type of
         undefined ->
-            ?debugFmt("~s ~s ~p~n", [Type, Key, Body]);
+            %% if it isn't a document type we recognize, we don't care and carry on.
+            ignored;
         _ ->
-            process_item_by_type(normalize_type_name(Type), Account, Key, Body)
+            process_item_by_type(Type, Account, Key, Body)
     end,
     ok.
 
-process_item_by_type(auth_group,
+process_item_by_type({auth, group},
                      #account_info{db=Db}, Key, Body) ->
-    dets:insert(Db, {{auth_group, Key}, Body}),
+    dets:insert(Db, {{{auth, group}, Key}, Body}),
     ok;
 process_item_by_type(auth_join,
                      #account_info{user_to_authz=User2Auth,
@@ -144,37 +145,16 @@ process_item_by_type(design_doc,
                      #account_info{db=Db}, Key, Body) ->
     dets:insert(Db, {{org_user, Key}, Body}),
     ok;
-%%
-%% Catch all
-%%
-process_item_by_type(_Type, _Acct, _Key, Body) ->
-    ?debugFmt("~s ~p~n", [_Type, Body]),
+process_item_by_type(_Type, _Acct, _Key, _Body) ->
+    %% happily ignore unknown types
     ok.
 
-%%%
-%%% Simplify type names to atoms.
-%%%
-normalize_type_name(<<"AssociationRequest">>) -> association_request;
-normalize_type_name(<<"Mixlib::Authorization::AuthJoin">>) -> auth_join;
-normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> auth_container;
-normalize_type_name(<<"Mixlib::Authorization::Models::Group">>) -> auth_group;
-normalize_type_name(<<"Mixlib::Authorization::Models::Organization">>) -> auth_org;
-normalize_type_name(<<"Mixlib::Authorization::Models::User">>) -> auth_user;
-normalize_type_name(<<"OrganizationUser">>) -> org_user;
-normalize_type_name(design_doc) -> design_doc;
-normalize_type_name(T) ->
-    ?debugFmt("Unknown type ~s~n", [T]),
-    unknown_type.
-
-%%%
-%%%
-%%%
 user_to_auth(_, bad_id) ->
     <<"bad_authz_id">>;
 user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
     case dets:lookup(U2A, Id) of
         [{Id,V}] -> {ok, V};
-        [] -> {fail, <<"bad_authz_id">>}
+        [] -> {fail, authz_id_not_found}
     end.
 
 get_org_guid_by_name(Name,

@@ -94,7 +94,8 @@ extract_type(<<"_design/",_/binary>>, _Body) ->
     design_doc;
 extract_type(_Key, Body) ->
     TypeKeyPrefList = [<<"json_class">>, <<"couchrest-type">>, <<"type">>],
-    extract_first_type(TypeKeyPrefList, Body).
+    RawType = extract_first_type(TypeKeyPrefList, Body),
+    normalize_type_name(RawType).
 
 extract_first_type([Key | Rest], Body) ->
     case ej:get({Key}, Body) of
@@ -106,9 +107,41 @@ extract_first_type([Key | Rest], Body) ->
 extract_first_type([], _Body) ->
     undefined.
 
+normalize_type_name(<<"Mixlib::Authorization::Models::Client">>) -> {auth, client};
+normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> {auth_simple, container};
+normalize_type_name(<<"Mixlib::Authorization::Models::Cookbook">>) -> {auth_simple, cookbook};
+normalize_type_name(<<"Mixlib::Authorization::Models::DataBag">>) -> {auth_simple, databag};
+normalize_type_name(<<"Mixlib::Authorization::Models::Environment">>) -> {auth_simple, environment};
+normalize_type_name(<<"Mixlib::Authorization::Models::Group">>) -> {auth, group};
+normalize_type_name(<<"Mixlib::Authorization::Models::Node">>) -> {auth_simple, node};
+normalize_type_name(<<"Mixlib::Authorization::Models::Role">>) -> {auth_simple, role};
+normalize_type_name(<<"Mixlib::Authorization::Models::Sandbox">>) -> {auth_simple, sandbox};
+normalize_type_name(<<"Chef::ApiClient">>) -> {chef, apiclient};
+normalize_type_name(<<"Chef::Checksum">>) -> {chef, checksum};
+normalize_type_name(<<"Chef::Cookbook">>) -> {chef, cookbook};
+normalize_type_name(<<"Cookbook">>) -> {chef, cookbook_old};
+normalize_type_name(<<"Chef::CookbookVersion">>) -> {chef, cookbook_version};
+normalize_type_name(<<"Chef::DataBag">>) -> {chef, databag};
+normalize_type_name(<<"Chef::DataBagItem">>) -> {chef, databag_item};
+normalize_type_name(<<"Chef::Environment">>) -> {chef, environment};
+normalize_type_name(<<"Chef::Node">>) -> {chef, node};
+normalize_type_name(<<"Chef::Role">>) -> {chef, role};
+normalize_type_name(<<"Chef::Sandbox">>) -> {chef, sandbox};
+%% %% acct db types:
+normalize_type_name(<<"AssociationRequest">>) -> association_request;
+normalize_type_name(<<"Mixlib::Authorization::AuthJoin">>) -> auth_join;
+normalize_type_name(<<"Mixlib::Authorization::Models::Organization">>) -> auth_org;
+normalize_type_name(<<"Mixlib::Authorization::Models::User">>) -> auth_user;
+normalize_type_name(<<"OrganizationUser">>) -> org_user;
+%% instance type is part of the defunct quick start feature
+normalize_type_name(<<"instance">>) -> undefined;
+%% misc
+normalize_type_name(design_doc) -> design_doc;
+normalize_type_name(undefined) -> undefined.
+
 process_couch_item(Org, Key, Body) ->
     Type = extract_type(Key, Body),
-    process_item_by_type(normalize_type_name(Type), Org, Key, Body),
+    process_item_by_type(Type, Org, Key, Body),
     ok.
 
 %% Insert item into appropriate ETS table(s) or ignore. Return value should be ignored.
@@ -137,30 +170,6 @@ process_item_by_type(undefined, _Org, _Key, _Body) ->
     %% we've handled the types we care to migrate now, so unknown types are otherwise
     %% ignored.
     ok.
-
-normalize_type_name(<<"Mixlib::Authorization::Models::Client">>) -> {auth, client};
-normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> {auth_simple, container};
-normalize_type_name(<<"Mixlib::Authorization::Models::Cookbook">>) -> {auth_simple, cookbook};
-normalize_type_name(<<"Mixlib::Authorization::Models::DataBag">>) -> {auth_simple, databag};
-normalize_type_name(<<"Mixlib::Authorization::Models::Environment">>) -> {auth_simple, environment};
-normalize_type_name(<<"Mixlib::Authorization::Models::Group">>) -> {auth, group};
-normalize_type_name(<<"Mixlib::Authorization::Models::Node">>) -> {auth_simple, node};
-normalize_type_name(<<"Mixlib::Authorization::Models::Role">>) -> {auth_simple, role};
-normalize_type_name(<<"Mixlib::Authorization::Models::Sandbox">>) -> {auth_simple, sandbox};
-normalize_type_name(<<"Chef::ApiClient">>) -> {chef, apiclient};
-normalize_type_name(<<"Chef::Checksum">>) -> {chef, checksum};
-normalize_type_name(<<"Chef::Cookbook">>) -> {chef, cookbook};
-normalize_type_name(<<"Cookbook">>) -> {chef, cookbook_old};
-normalize_type_name(<<"Chef::CookbookVersion">>) -> {chef, cookbook_version};
-normalize_type_name(<<"Chef::DataBag">>) -> {chef, databag};
-normalize_type_name(<<"Chef::DataBagItem">>) -> {chef, databag_item};
-normalize_type_name(<<"Chef::Environment">>) -> {chef, environment};
-normalize_type_name(<<"Chef::Node">>) -> {chef, node};
-normalize_type_name(<<"Chef::Role">>) -> {chef, role};
-normalize_type_name(<<"Chef::Sandbox">>) -> {chef, sandbox};
-normalize_type_name(design_doc) -> design_doc;
-normalize_type_name(undefined) -> undefined.
-
 
 get_name(Type, Body) ->
     ej:get({mixlib_name_key(Type)}, Body).

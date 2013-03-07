@@ -34,6 +34,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -48,7 +49,7 @@ process_couch_file(DbFile) when is_list(DbFile) ->
 process_couch_file(#org_info{db_name=DbName} = OrgInfo) ->
     case filelib:is_file(DbName) of
         false ->
-            ?debugFmt("Can't open file ~s", [DbName]),
+            lager:error(?LOG_META(OrgInfo), "Can't open file '~s'", [DbName]),
             throw({no_such_file, DbName});
         true ->
             ok

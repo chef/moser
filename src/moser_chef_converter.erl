@@ -57,12 +57,6 @@
                      "data_bag_items",
                      "data_bags"]).
 
-%% we need this as a macro because lager uses a parse transform and can't handle a function
-%% call that returns the metadata proplist :(
--define(LOG_META(O),
-        [{org_name, binary_to_list(O#org_info.org_name)},
-         {org_id, binary_to_list(O#org_info.org_id)}]).
-
 insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
     try
         {Time0, Totals0} = insert_checksums(Org, dict:new()),

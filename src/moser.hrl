@@ -48,3 +48,9 @@
           orgs_by_guid,
           db
         }).
+
+%% we need this as a macro because lager uses a parse transform and can't handle a function
+%% call that returns the metadata proplist :(
+-define(LOG_META(O),
+        [{org_name, binary_to_list(O#org_info.org_name)},
+         {org_id, binary_to_list(O#org_info.org_id)}]).

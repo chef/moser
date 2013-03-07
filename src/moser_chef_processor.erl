@@ -152,17 +152,11 @@ process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
     OrgName = ej:get({<<"orgname">>}, Body),
     ets:insert(Org#org_info.chef_ets, {orgname, OrgName}),
     ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
-
 process_item_by_type(design_doc, _, _, _) ->
     ok;
-%% Process various unmatched types
-process_item_by_type(undefined, _Org, <<"_design/", _DesignDoc/binary>>, _Body) ->
-    %% io:format("Design doc ~s~n", [_DesignDoc]);
-    ok;
 process_item_by_type(undefined, _Org, _Key, _Body) ->
-    ?debugVal(undefined),
-    ?debugVal(_Key),
-    ?debugVal(_Body),
+    %% we've handled the types we care to migrate now, so unknown types are otherwise
+    %% ignored.
     ok;
 process_item_by_type(Type, Org, Key, Body) ->
     ?debugVal(Type),

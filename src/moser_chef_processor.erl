@@ -45,7 +45,7 @@ process_organization(OrgName) ->
 process_couch_file(DbFile) when is_list(DbFile) ->
     OrgInfo = moser_acct_processor:expand_org_info(#org_info{ db_name = DbFile }),
     process_couch_file(OrgInfo);
-process_couch_file(#org_info{org_name=OrgName, db_name=DbName} = OrgInfo) ->
+process_couch_file(#org_info{db_name=DbName} = OrgInfo) ->
     case filelib:is_file(DbName) of
         false ->
             ?debugFmt("Can't open file ~s", [DbName]),
@@ -65,21 +65,7 @@ process_couch_file(#org_info{org_name=OrgName, db_name=DbName} = OrgInfo) ->
                      AccIn
              end,
     decouch_reader:open_process_all(DbName, IterFn),
-    %% The orgname key is filled from the last written group record using the group's
-    %% orgname field. At least in the case of an org rename, this will not match. So we
-    %% check and log mismatch, but ignore it.
-    OrgNameFromFile = case ets:lookup(Org#org_info.chef_ets, orgname) of
-                          [] -> unknown;
-                          [{orgname, O}] -> O
-                      end,
-    case OrgName of
-        OrgNameFromFile ->
-            {ok, Org};
-        _ ->
-            lager:error("OrgName provided (~s) doesn't match OrgName (~s) in the file ~s (via groups)",
-                        [OrgName, OrgNameFromFile, DbName]),
-            {ok, Org}
-    end.
+    {ok, Org}.
 
 cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth_ets = Auth, start_time = Start}) ->
     ets:delete(Chef),
@@ -124,6 +110,7 @@ process_couch_item(Org, Key, Body) ->
     process_item_by_type(normalize_type_name(Type), Org, Key, Body),
     ok.
 
+%% Insert item into appropriate ETS table(s) or ignore. Return value should be ignored.
 process_item_by_type({_, node}, _Org, _Key, _Body) ->
     %% Node docs are to be ignored
     ok;
@@ -142,10 +129,6 @@ process_item_by_type({auth, client=AuthType}, Org, Key, Body) ->
 process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
     %% Group: actor_and_group_names, groupname, orgname
     Name = get_name(AuthType, Body),
-    %% NOTE: This is a dirty hack for the orgname and we should be ashamed of ourselves.
-    %% TODO: RIP THIS OUT when we get things running
-    OrgName = ej:get({<<"orgname">>}, Body),
-    ets:insert(Org#org_info.chef_ets, {orgname, OrgName}),
     ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
 process_item_by_type(design_doc, _, _, _) ->
     ok;

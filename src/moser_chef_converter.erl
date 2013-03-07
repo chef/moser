@@ -278,7 +278,6 @@ insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     ObjWithDate = chef_object:set_created(Role, RequesterId),
     {ok, 1} = chef_sql:create_environment(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-%% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,

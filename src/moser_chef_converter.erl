@@ -57,23 +57,18 @@
                      "data_bag_items",
                      "data_bags"]).
 
-%% we need this as a macro because lager uses a parse transform and can't handle a function
-%% call that returns the metadata proplist :(
--define(LOG_META(O),
-        [{org_name, binary_to_list(O#org_info.org_name)},
-         {org_id, binary_to_list(O#org_info.org_id)}]).
-
-insert(#org_info{org_name = Name, org_id = Guid} = Org) ->
+insert(#org_info{} = Org) ->
     try
         {Time0, Totals0} = insert_checksums(Org, dict:new()),
         {Time1, Totals1} = insert_databags(Org, Totals0),
         {Time2, _} = insert_objects(Org, Totals1),
         TotalTime = Time0 + Time1 + Time2,
-        lager:info("Total Database ~s (org ~s) insertions took ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(TotalTime)]),
+        lager:info(?LOG_META(Org), "inserts complete ~.3f seconds",
+                   [moser_utils:us_to_secs(TotalTime)]),
         {ok, TotalTime}
     catch
         error:E ->
-            lager:error("~p~n~p~n", [E,erlang:get_stacktrace()]),
+            lager:error(?LOG_META(Org), "~p~n~p", [E, erlang:get_stacktrace()]),
             {error, E}
     end.
 
@@ -155,7 +150,7 @@ insert_objects(#org_info{org_name = OrgName,
     {Time, Totals1} = timer:tc(fun() -> ets:foldl(Inserter, Totals, Chef) end),
     lager:info(?LOG_META(Org), "~p (~p) Insert ~s Stats: ~p~n",
                [OrgName, OrgId, Type, lists:sort(dict:to_list(Totals1))]),
-    lager:info(?LOG_META(Org), "~p (~p) ~s insertions took ~f seconds~n",
+    lager:info(?LOG_META(Org), "~p (~p) ~s insertions took ~.3f seconds~n",
                [OrgName, OrgId, Type, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
 
@@ -278,7 +273,6 @@ insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     ObjWithDate = chef_object:set_created(Role, RequesterId),
     {ok, 1} = chef_sql:create_environment(ObjWithDate),
     dict:update_counter(Type, 1, Acc);
-%% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,

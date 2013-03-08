@@ -55,8 +55,8 @@ expand_org_info(Org) ->
     try
         moser_acct_processor:expand_org_info(Org)
     catch
-        error:E ->
-            ?debugFmt("Couldn't expand ~p~n~p~n", [Org, E]),
+        error:Why ->
+            lager:error(?LOG_META(Org), "ORG WILL BE SKIPPED; expand_org_info failed: ~p", [Why]),
             []
     end.
 
@@ -81,7 +81,7 @@ process_insert_org(OrgInfo) ->
                     moser_chef_processor:cleanup_org_info(OrgInfoFull)
                 end,
             Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
-            io:format("~s (~s) in ~f secs~n", [OrgInfoFull#org_info.org_name, OrgInfoFull#org_info.org_id, Time]),
+            lager:info(?LOG_META(OrgInfo), "COMPLETED ~.3f secs", [Time]),
             R;
         {error, Msg} ->
             {error, Msg}
@@ -116,5 +116,5 @@ process_insert_file(File) ->
             moser_chef_processor:cleanup_org_info(Db)
         end,
     Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
-    io:format("~s (~s) in ~f secs~n", [Db#org_info.org_name, Db#org_info.org_id, Time]),
+    lager:info(?LOG_META(Db), "total time: ~.3f secs", [Time]),
     R.

@@ -34,6 +34,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -45,10 +46,10 @@ process_organization(OrgName) ->
 process_couch_file(DbFile) when is_list(DbFile) ->
     OrgInfo = moser_acct_processor:expand_org_info(#org_info{ db_name = DbFile }),
     process_couch_file(OrgInfo);
-process_couch_file(#org_info{org_name=OrgName, db_name=DbName} = OrgInfo) ->
+process_couch_file(#org_info{db_name=DbName} = OrgInfo) ->
     case filelib:is_file(DbName) of
         false ->
-            ?debugFmt("Can't open file ~s", [DbName]),
+            lager:error(?LOG_META(OrgInfo), "Can't open file '~s'", [DbName]),
             throw({no_such_file, DbName});
         true ->
             ok
@@ -65,27 +66,11 @@ process_couch_file(#org_info{org_name=OrgName, db_name=DbName} = OrgInfo) ->
                      AccIn
              end,
     decouch_reader:open_process_all(DbName, IterFn),
-    %% The orgname key is filled from the last written group record using the group's
-    %% orgname field. At least in the case of an org rename, this will not match. So we
-    %% check and log mismatch, but ignore it.
-    OrgNameFromFile = case ets:lookup(Org#org_info.chef_ets, orgname) of
-                          [] -> unknown;
-                          [{orgname, O}] -> O
-                      end,
-    case OrgName of
-        OrgNameFromFile ->
-            {ok, Org};
-        _ ->
-            lager:error("OrgName provided (~s) doesn't match OrgName (~s) in the file ~s (via groups)",
-                        [OrgName, OrgNameFromFile, DbName]),
-            {ok, Org}
-    end.
+    {ok, Org}.
 
-cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth_ets = Auth, start_time = Start}) ->
+cleanup_org_info(#org_info{chef_ets = Chef, auth_ets = Auth}) ->
     ets:delete(Chef),
-    ets:delete(Auth),
-    Time = timer:now_diff(os:timestamp(), Start),
-    io:format("Database ~s (org ~s) completed in ~f seconds~n", [Name, Guid, moser_utils:us_to_secs(Time)]).
+    ets:delete(Auth).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -97,72 +82,28 @@ cleanup_org_info(#org_info{org_name = Name, org_id = Guid, chef_ets = Chef, auth
 %%% Internal functions
 %%%===================================================================
 
+%% @doc Return the type of a given document from couchdb. We determine the type taking the
+%% first type value found among a list of type keys: json_class, couchrest-type, and
+%% type. Documents should, in theory, have either json_class xor couchrest-type. The "type"
+%% key corresponds to some quick start objects which we ignore. Documents with unknown type
+%% return as 'undefined' and are later ignored. We select json_class first since this is the
+%% type of checksums, the most prolific object.
 extract_type(<<"_design/",_/binary>>, _Body) ->
     design_doc;
-extract_type(Key, Body) ->
-    JClass = ej:get({<<"json_class">>}, Body),
-    CRType = ej:get({<<"couchrest-type">>}, Body),
-    Type  = case {JClass, CRType} of
-                {undefined, undefined} -> undefined;
-                {undefined, T} -> T;
-                {T, undefined} -> T;
-                _ ->
-                    ?debugVal(Key),
-                    ?debugVal(Body),
-                    ?debugVal({JClass, CRType}),
-                    error
-            end,
-    Type.
+extract_type(_Key, Body) ->
+    TypeKeyPrefList = [<<"json_class">>, <<"couchrest-type">>, <<"type">>],
+    RawType = extract_first_type(TypeKeyPrefList, Body),
+    normalize_type_name(RawType).
 
-
-process_couch_item(Org, Key, Body) ->
-    Type = extract_type(Key, Body),
-    process_item_by_type(normalize_type_name(Type), Org, Key, Body),
-    ok.
-
-%% Process special types
-process_item_by_type({_, node}, _Org, _Key, _Body) ->
-    %% Node docs are to be ignored
-    ok;
-%% Process Chef:: types
-process_item_by_type({chef, ChefType}, Org, Key, Body) ->
-    ets:insert(Org#org_info.chef_ets, {{ChefType, Key}, Body});
-%% Process simple mixlib authorization types
-%% These just have the fields
-%% id, couchrest-type, name (or some variant), sometimes orgname, requester_id
-process_item_by_type({auth_simple, AuthType}, Org, Key, Body) ->
-    Name = get_name(AuthType, Body),
-    ets:insert(Org#org_info.auth_ets, {{AuthType, Name}, {Key, Body}});
-%% More complex mixlib authorization types contain other data, or don't fit the schema
-%% So we need to put them into the chef db for further processing...
-%%
-%% Client: All the info is in the mixlib record; there is no Chef::Client object
-process_item_by_type({auth, client=AuthType}, Org, Key, Body) ->
-    Name = get_name(AuthType, Body),
-    ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
-%% Group: actor_and_group_names, groupname, orgname
-process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
-    Name = get_name(AuthType, Body),
-    %% NOTE: This is a dirty hack for the orgname and we should be ashamed of ourselves.
-    %% TODO: RIP THIS OUT when we get things running
-    OrgName = ej:get({<<"orgname">>}, Body),
-    ets:insert(Org#org_info.chef_ets, {orgname, OrgName}),
-    ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
-
-process_item_by_type(design_doc, _, _, _) ->
-    ok;
-%% Process various unmatched types
-process_item_by_type(undefined, _Org, <<"_design/", _DesignDoc/binary>>, _Body) ->
-    %% io:format("Design doc ~s~n", [_DesignDoc]);
-    ok;
-process_item_by_type(undefined, _Org, _Key, _Body) ->
-    ?debugVal(undefined),
-    ?debugVal(_Key),
-    ?debugVal(_Body),
-    ok;
-process_item_by_type(Type, Org, Key, Body) ->
-    ?debugVal(Type),
-    ets:insert(Org#org_info.chef_ets, {Key, Body}).
+extract_first_type([Key | Rest], Body) ->
+    case ej:get({Key}, Body) of
+        undefined ->
+            extract_first_type(Rest, Body);
+        Type ->
+            Type
+    end;
+extract_first_type([], _Body) ->
+    undefined.
 
 normalize_type_name(<<"Mixlib::Authorization::Models::Client">>) -> {auth, client};
 normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> {auth_simple, container};
@@ -184,9 +125,49 @@ normalize_type_name(<<"Chef::Environment">>) -> {chef, environment};
 normalize_type_name(<<"Chef::Node">>) -> {chef, node};
 normalize_type_name(<<"Chef::Role">>) -> {chef, role};
 normalize_type_name(<<"Chef::Sandbox">>) -> {chef, sandbox};
+%% %% acct db types:
+normalize_type_name(<<"AssociationRequest">>) -> association_request;
+normalize_type_name(<<"Mixlib::Authorization::AuthJoin">>) -> auth_join;
+normalize_type_name(<<"Mixlib::Authorization::Models::Organization">>) -> auth_org;
+normalize_type_name(<<"Mixlib::Authorization::Models::User">>) -> auth_user;
+normalize_type_name(<<"OrganizationUser">>) -> org_user;
+%% instance type is part of the defunct quick start feature
+normalize_type_name(<<"instance">>) -> undefined;
+%% misc
 normalize_type_name(design_doc) -> design_doc;
 normalize_type_name(undefined) -> undefined.
 
+process_couch_item(Org, Key, Body) ->
+    Type = extract_type(Key, Body),
+    process_item_by_type(Type, Org, Key, Body),
+    ok.
+
+%% Insert item into appropriate ETS table(s) or ignore. Return value should be ignored.
+process_item_by_type({_, node}, _Org, _Key, _Body) ->
+    %% Node docs are to be ignored
+    ok;
+process_item_by_type({chef, ChefType}, Org, Key, Body) ->
+    %% All Chef::* types go into the chef_ets table.
+    ets:insert(Org#org_info.chef_ets, {{ChefType, Key}, Body});
+process_item_by_type({auth_simple, AuthType}, Org, Key, Body) ->
+    %% Simple mixlib authorization types just have the fields: id, couchrest-type, name (or
+    %% some variant), sometimes orgname, and requester_id.
+    Name = get_name(AuthType, Body),
+    ets:insert(Org#org_info.auth_ets, {{AuthType, Name}, {Key, Body}});
+process_item_by_type({auth, client=AuthType}, Org, Key, Body) ->
+    %% Client: All the info is in the mixlib record; there is no Chef::Client object
+    Name = get_name(AuthType, Body),
+    ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
+process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
+    %% Group: actor_and_group_names, groupname, orgname
+    Name = get_name(AuthType, Body),
+    ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
+process_item_by_type(design_doc, _, _, _) ->
+    ok;
+process_item_by_type(undefined, _Org, _Key, _Body) ->
+    %% we've handled the types we care to migrate now, so unknown types are otherwise
+    %% ignored.
+    ok.
 
 get_name(Type, Body) ->
     ej:get({mixlib_name_key(Type)}, Body).

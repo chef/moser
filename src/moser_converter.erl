@@ -56,7 +56,7 @@ expand_org_info(Org) ->
         moser_acct_processor:expand_org_info(Org)
     catch
         error:Why ->
-            lager:error(?LOG_META(Org), "ORG WILL BE SKIPPED; expand_org_info failed: ~p", [Why]),
+            lager:error("ORG WILL BE SKIPPED; expand_org_info failed: ~p (~p)", [Why, Org]),
             []
     end.
 

@@ -146,8 +146,9 @@ insert_objects(#org_info{org_name = OrgName,
                            InsertFun(Org, Item, Acc)
                        catch
                            Error:Why ->
-                               lager:error("~p (~p) unable to insert ~s item {~p, ~p, ~p}",
-                                           [OrgName, OrgId, Type, Item, Error, Why]),
+                               lager:error(?LOG_META(Org), "~s insert FAILED {~p:~p, ~p, ~p}",
+                                           [Type,
+                                            Error, Why, Item, erlang:get_stacktrace()]),
                                Acc
                        end
                end,
@@ -279,7 +280,6 @@ insert_one(Org, {{environment = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
     dict:update_counter(Type, 1, Acc);
 %% Cookbook versions: This is so horridly wrong I'm ashamed, but it probably represents the IOP count properly
 insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
-    _Checksums = extract_all_checksums(?SEGMENTS, Data),
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,
                       <<"platforms">>,
@@ -299,8 +299,22 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc
     BaseRecord = chef_object:new_record(chef_cookbook_version, moser_utils:get_org_id(Org), AuthzId, FixedData),
     CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
-    {ok, 1} = chef_sql:create_cookbook_version(ObjWithDate),
-    dict:update_counter(Type, 1, Acc);
+    case chef_sql:create_cookbook_version(ObjWithDate) of
+        {error, invalid_checksum} ->
+            %% we'll see an invalid_checksum error if a cookbook_version object contains a
+            %% checksum that isn't in the checksums table. This means the cbv is broken
+            %% (perhaps as a result of using --purge). So we log and skip these.
+            Props = [{error_type, cookbook_version_missing_checksum}| ?LOG_META(Org)],
+            lager:warning(Props, "cookbook_version ~s (~s) SKIPPED missing checksums",
+                          [ej:get({"name"}, Data), Id]),
+            Acc;
+        {ok, 1} ->
+            dict:update_counter(Type, 1, Acc);
+        Error ->
+            lager:error(?LOG_META(Org), "cookbook_version ~s (~s) SKIPPED ~p",
+                        [ej:get({"name"}, Data), Id, Error]),
+            Acc
+    end;
 %% Old style cookbooks
 %% These use the "Cookbook" chef_type. As best we can tell, this isn't used anywhere in the OHC code.
 %% May want a final check with Adam and CB to make sure there isn't some secret stuff, but it appears
@@ -378,14 +392,6 @@ extract_client_key_info(Data) ->
 %%
 %% Utility routines
 %%
-extract_all_checksums(Sections, Data) ->
-    lists:flatten([ extract_checksums(ej:get({Section}, Data)) || Section <- Sections ]).
-
-extract_checksums(undefined) ->
-    [];
-extract_checksums(SegmentData) ->
-    [ej:get({"checksum"}, Item) || Item <- SegmentData].
-
 
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
@@ -401,24 +407,27 @@ get_authz_info(Org, Type, Name, Id) ->
                 _  ->
                     {AuthId,  RequesterId}
             end;
-        {fail, _} ->
-            Msg = iolist_to_binary(io_lib:format("~s No authz id found for ~s ~s ~s",
-                                                 [Org#org_info.org_name, Type, Name, Id])),
-            lager:warning(?LOG_META(Org), Msg),
+        {fail, FailType} ->
+            Props = [{error_type, FailType} | ?LOG_META(Org)],
+            lager:warning(Props, "SKIPPING ~s ~s (~s) missing authz data",
+                          [Type, Name, Id]),
             not_found
     end.
 
-
-%%
 %% This needs to look up the mixlib auth doc, find the user side id and the requester id,
 %% map the user side id via opscode_account to the auth side id and return a tuple
 get_user_side_auth_id(#org_info{}, client, _Name, Id) ->
     %% Clients are special; they are their own mixlib auth docs
     {Id, clone};
 get_user_side_auth_id(#org_info{auth_ets=Auth}, cookbook_version, Name, _Id) ->
-    [{_, {UserId, Data}}] = ets:lookup(Auth, {cookbook, Name}),
-    Requester = ej:get({"requester_id"}, Data),
-    {UserId, Requester};
+    case ets:lookup(Auth, {cookbook, Name}) of
+        [{_, {UserId, Data}}] ->
+            ets:lookup(Auth, {cookbook, Name}),
+            Requester = ej:get({"requester_id"}, Data),
+            {UserId, Requester};
+        [] ->
+            {not_found, not_found}
+    end;
 get_user_side_auth_id(#org_info{auth_ets=Auth}, databag_item, Name, _Id) ->
     get_user_side_auth_id_generic(Auth, databag, Name);
 get_user_side_auth_id(#org_info{auth_ets=Auth}, databag, Name, _Id) ->
@@ -429,7 +438,7 @@ get_user_side_auth_id(#org_info{auth_ets=Auth}, environment = Type, Name, _Id) -
     get_user_side_auth_id_generic(Auth, Type, Name);
 get_user_side_auth_id(Org, Type, Name, Id) ->
     lager:error(?LOG_META(Org), "Can't process for type ~s, ~s ~s", [Type, Name, Id]),
-    {bad_id, <<"BadId">>}.
+    {not_found, not_found}.
 
 get_user_side_auth_id_generic(Auth, Type, Name) ->
     case ets:lookup(Auth, {Type, Name}) of
@@ -437,13 +446,11 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
             Requester = ej:get({"requester_id"}, Data),
             {UserId, Requester};
         [] ->
-            lager:error("Can't find auth info for ~s, ~s. Returning not_found",
-                        [Type, Name]),
             {not_found, not_found}
     end.
 
 user_to_auth(_, not_found) ->
-    {fail, not_found};
+    {fail, user_side_authz_not_found};
 user_to_auth(#org_info{account_info=Acct}, UserId) ->
     moser_acct_processor:user_to_auth(Acct, UserId).
 

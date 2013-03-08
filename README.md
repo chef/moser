@@ -64,14 +64,13 @@ moser_chef_converter:insert(Db).
 ```
 f(CL), f(CLS), f(CO), f(CO2), f(T), f(R), f(X).
 CL = moser_converter:get_chef_list(), length(CL).
-CLS = lists:sublist(CL, 20, 10).
-CO = moser_converter:file_list_to_orginfo(CLS), length(CO).
+CO = moser_converter:file_list_to_orginfo(CL), length(CO).
 CO2 = moser_converter:filter_out_precreated_orgs(CO), length(CO2).
 {T, R} = timer:tc(fun() -> moser_converter:process_insert_orgs(CO2) end).
-X = lists:zip(R,CO2)
-IsFail = fun({{ok, _},_}) -> false; (_) -> true end.
-Fails = [ PP || PP <- Out, IsFail(PP)].
 ```
+
+All orgs should complete with an "ok", but some orgs may have failed
+objects. Review the logs for error messages.
 
 ### Full sweep migration ###
 

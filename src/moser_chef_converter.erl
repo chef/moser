@@ -256,7 +256,10 @@ insert_one(Org, {{role, _Id}, Data}, AuthzId, RequesterId, Acc) ->
 %% Environments
 insert_one(Org, {{environment, _Id}, Data}, AuthzId, RequesterId, Acc) ->
     OrgId = moser_utils:get_org_id(Org),
-    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data)),
+    %% first version of environments had a top-level attributes key which is no longer
+    %% allowed. If the key is present with an empty value, just remove it.
+    Data1 = remove_empty_top_level_attributes(Data),
+    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data1)),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
     {ok, 1} = chef_sql:create_environment(ObjWithDate),
@@ -331,6 +334,16 @@ insert_one(_Org, {orgname, _}, _AuthzId, _RequesterId, Acc) ->
 insert_one(Org, Item, _AuthzId, _RequesterId, Acc) ->
     lager:warning(?LOG_META(Org), "unexpected item in insert_one: ~p", [Item]),
     Acc.
+
+%% Intended for use with environment objects, removes a top-level "attributes" key if the
+%% value is an empty hash.
+remove_empty_top_level_attributes(Data) ->
+    case ej:get({<<"attributes">>}, Data) of
+        {[]} ->
+            ej:delete({<<"attributes">>}, Data);
+        _ ->
+            Data
+    end.
 
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that

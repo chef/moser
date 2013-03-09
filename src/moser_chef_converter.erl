@@ -137,17 +137,21 @@ insert_objects(#org_info{org_name = OrgName,
                            InsertFun(Org, Item, Acc)
                        catch
                            throw:{EType, EDetail} ->
-                               Props = [{error_type, EType} | ?LOG_META(Org)],
-                               lager:error(Props, "~s FAILED {~p, ~p, ~p}",
-                                           [Type, EDetail, Item, erlang:get_stacktrace()]),
+                               RealType = type_for_object(Item),
+                               Props = [{error_type, {RealType, EType}} | ?LOG_META(Org)],
+                               lager:error(Props, "FAILED {~p, ~p, ~p}",
+                                           [EDetail, Item, erlang:get_stacktrace()]),
                                Acc;
-                           throw:#ej_invalid{msg = Msg, found = Found, key = Key} ->
-                               Props = [{error_type, Msg}| ?LOG_META(Org)],
-                               lager:error(Props, "~s insert FAILED {~p, ~p}", [Type, Key, Found]),
+                           throw:#ej_invalid{msg = Msg, type = SpecType, found = Found, key = Key} ->
+                               RealType = type_for_object(Item),
+                               Props = [{error_type, {RealType, SpecType, Key, Found}}| ?LOG_META(Org)],
+                               lager:error(Props, "FAILED {~p, ~p}",
+                                           [Msg, Item]),
                                Acc;
                            Error:Why ->
-                               lager:error(?LOG_META(Org), "~s insert FAILED {~p:~p, ~p, ~p}",
-                                           [Type,
+                               RealType = type_for_object(Item),
+                               lager:error(?LOG_META(Org), "~s FAILED {~p:~p, ~p, ~p}",
+                                           [RealType,
                                             Error, Why, Item, erlang:get_stacktrace()]),
                                Acc
                        end
@@ -182,6 +186,14 @@ id_for_object({{client, _Name}, {Id, _}}) ->
     Id;
 id_for_object({{_Type, Id}, _}) ->
     Id.
+
+type_for_object({{client, _}, {_, _}}) ->
+    client;
+type_for_object({{Type, _}, _}) ->
+    Type;
+type_for_object(_) ->
+    unknown_type.
+
 
 insert_one(Org, {{Type, _IdOrName}, _} = Object, Acc) ->
     Name = name_for_object(Object),

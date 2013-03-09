@@ -55,8 +55,8 @@ get_orgid_from_dbname(DbName) ->
     OrgId.
 
 get_dbname_from_orgid(OrgId) ->
-    FileName = lists:flatten(["chef_", OrgId, ".couch"]),
-    filename:join([moser_converter:get_couch_path(),FileName]).
+    iolist_to_binary([moser_converter:get_couch_path(), "/",
+                      "chef_", OrgId, ".couch"]).
 
 list_ej_keys({Ej}) ->
     lists:sort([K || {K,_} <- Ej]).

@@ -27,6 +27,7 @@
 -export([get_chef_list/0,
          file_list_to_orginfo/1,
          filter_out_precreated_orgs/1,
+         full_sweep/0,
          process_insert_org/1,
          process_insert_orgs/1,
          process_file_list/1,
@@ -51,6 +52,22 @@ get_chef_list() ->
     DbPattern = filename:join([Path, "chef_*.couch"]),
     filelib:wildcard(DbPattern).
 
+%% @doc Run migration for all assigned orgs in the acct db that have an existing couchdb
+%% file.
+full_sweep() ->
+    AcctInfo = moser_acct_processor:open_account(),
+    %% this returns all assigned orgs in the acct db.
+    AllOrgs = moser_acct_processor:all_orgs(AcctInfo),
+    %% filter out, those where we can't find the couchdb file (useful for test scenario
+    %% especially where we have a complete acct db, but partial colleciton of couchdb
+    %% files).
+    HaveFileOrgs = [ O || O <- AllOrgs, dbfile_exists(O) ],
+    {T, R} = timer:tc(fun() -> process_insert_orgs(HaveFileOrgs) end),
+    {{T/1.0e6/60.0, min}, R}.
+
+dbfile_exists(#org_info{db_name = DbFile}) ->
+    filelib:is_file(DbFile).
+
 expand_org_info(Org) ->
     moser_acct_processor:expand_org_info(Org).
 
@@ -61,6 +78,7 @@ file_list_to_orginfo(L) ->
 
 filter_out_precreated_orgs(OL) ->
     [ O || #org_info{is_precreated = false} = O <- OL ].
+
 
 process_insert_org(OrgInfo) ->
     Start = os:timestamp(),

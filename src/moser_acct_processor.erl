@@ -24,7 +24,8 @@
 -module(moser_acct_processor).
 
 %% API
--export([open_account/0,
+-export([all_orgs/1,
+         open_account/0,
          close_account/1,
          process_account_file/0,
          cleanup_account_info/1,
@@ -155,6 +156,40 @@ user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
         [{Id,V}] -> {ok, V};
         [] -> {fail, authz_id_not_found}
     end.
+
+%% @doc Return a list of `org_info' records for all assigned orgs.
+all_orgs(#account_info{} = AcctInfo) ->
+    WantPrecreated = false,
+    all_orgs(AcctInfo, WantPrecreated).
+
+%% @doc Return a complete list of `org_info' records for all orgs found in the account
+%% db. If `WantPrecreated' is `true' then unassigned precreated orgs will be included in the
+%% list. When this value is `false', only assigned orgs will be included. Assigned orgs are
+%% those with a `full_name' field that is not `Pre-created'.
+all_orgs(#account_info{orgs_by_guid = Orgs} = AcctInfo, WantPrecreated) ->
+    Fun = case WantPrecreated of
+              true ->
+                  fun({Id, OrgData}, Acc) ->
+                          Rec = org_ejson_to_rec(Id, OrgData, AcctInfo),
+                          [Rec | Acc] end;
+              false ->
+                  fun({Id, OrgData}, Acc) ->
+                          case is_precreated_org(OrgData) of
+                              true ->
+                                  Acc;
+                              false ->
+                                  Rec = org_ejson_to_rec(Id, OrgData, AcctInfo),
+                                  [Rec | Acc]
+                          end
+                  end
+          end,
+    dets:foldl(Fun, [], Orgs).
+
+org_ejson_to_rec(Id, OrgData, AcctInfo) ->
+    #org_info{org_name = ej:get({"name"}, OrgData),
+              org_id = Id,
+              db_name = moser_utils:get_dbname_from_orgid(Id),
+              account_info = AcctInfo}.
 
 get_org_guid_by_name(Name,
                      #account_info{orgname_to_guid=OrgName2Guid}) ->

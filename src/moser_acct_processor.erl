@@ -31,7 +31,6 @@
          user_to_auth/2,
          get_org_guid_by_name/2,
          get_org_by_guid/2,
-         get_org/2,
          is_precreated_org/1,
          is_precreated_org/2,
          expand_org_info/1
@@ -159,52 +158,74 @@ user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
 
 get_org_guid_by_name(Name,
                      #account_info{orgname_to_guid=OrgName2Guid}) ->
-    [{Name, GUID}] = dets:lookup(OrgName2Guid, Name),
-    GUID.
+    case dets:lookup(OrgName2Guid, Name) of
+        [{Name, GUID}] ->
+            GUID;
+        [] ->
+            not_found
+    end.
 
 get_org_by_guid(GUID,
                 #account_info{orgs_by_guid=Orgs}) ->
-    [{GUID, OrgData}] = dets:lookup(Orgs, GUID),
-    OrgData.
-
-get_org(GUID_or_Name,
-        #account_info{orgname_to_guid=OrgName2Guid} = AInfo) ->
-    GUID = case dets:lookup(OrgName2Guid, GUID_or_Name) of
-               [{GUID_or_Name, G}] -> G;
-               _ -> GUID_or_Name
-           end,
-    get_org_by_guid(GUID, AInfo).
-
-is_precreated_org(OrgData) when is_tuple(OrgData) ->
-    case ej:get({"full_name"}, OrgData) of
-        <<"Pre-created">> ->
-            true;
-        _ ->
-            false
+    case dets:lookup(Orgs, GUID) of
+        [{GUID, OrgData}] ->
+            OrgData;
+        [] ->
+            not_found
     end.
 
-is_precreated_org(GUID_or_Name, AInfo) ->
-    is_precreated_org(get_org(GUID_or_Name, AInfo)).
+is_precreated_org({[_H|_T]} = OrgEjson)  ->
+    ej:get({"full_name"}, OrgEjson) =:= <<"Pre-created">>.
 
+is_precreated_org(OrgId, AInfo) ->
+    is_precreated_org(get_org_by_guid(OrgId, AInfo)).
 
+%% FIXME: account_info is really a global tabel and could be extracted out.
+
+%% @doc Returns complete `#org_info{}' record or `not_found' given a partial `#org_info{}'
+%% record. You can start with exactly one of the following defined and other two undefined:
+%% org_name, org_id, db_name.
 expand_org_info(#org_info{account_info = undefined} = OrgInfo) ->
+    %% ensure the global account_info has been opened. The open call behaves idempotently.
     AcctInfo = moser_acct_processor:open_account(),
     expand_org_info(OrgInfo#org_info{account_info = AcctInfo});
 expand_org_info(#org_info{org_name = OrgName, org_id = undefined, db_name = undefined,
                           account_info = #account_info{} = Acct} = OrgInfo) ->
-    OrgDesc = get_org(OrgName, Acct),
-    OrgId = ej:get({"guid"}, OrgDesc),
-    DbName = moser_utils:get_dbname_from_orgid(OrgId),
-    OrgInfo#org_info{org_id = OrgId, db_name = DbName, is_precreated = is_precreated_org(OrgDesc)};
+    %% Given OrgName...
+    case get_org_guid_by_name(OrgName, Acct) of
+        not_found ->
+            not_found;
+        OrgDesc ->
+            OrgId = ej:get({"guid"}, OrgDesc),
+            DbName = moser_utils:get_dbname_from_orgid(OrgId),
+            OrgInfo#org_info{org_id = OrgId,
+                             db_name = DbName,
+                             is_precreated = is_precreated_org(OrgDesc)}
+    end;
 expand_org_info(#org_info{org_name = undefined, org_id = OrgId, db_name = undefined,
                           account_info = #account_info{} = Acct} = OrgInfo) ->
-    OrgDesc = get_org_by_guid(OrgId, Acct),
-    OrgName = ej:get({"name"}, OrgDesc),
-    DbName = moser_utils:get_dbname_from_orgid(OrgId),
-    OrgInfo#org_info{org_name = OrgName, db_name = DbName, is_precreated = is_precreated_org(OrgDesc)};
+    %% Given OrgId...
+    case get_org_by_guid(OrgId, Acct) of
+        not_found ->
+            not_found;
+        OrgDesc ->
+            OrgName = ej:get({"name"}, OrgDesc),
+            DbName = moser_utils:get_dbname_from_orgid(OrgId),
+            OrgInfo#org_info{org_name = OrgName,
+                             db_name = DbName,
+                             is_precreated = is_precreated_org(OrgDesc)}
+    end;
 expand_org_info(#org_info{org_name = undefined, org_id = undefined, db_name = DbName,
                           account_info = #account_info{} = Acct} = OrgInfo) ->
+    %% Given chef_* couchdb file path
     OrgId = moser_utils:get_orgid_from_dbname(DbName),
-    OrgDesc = get_org_by_guid(OrgId, Acct),
-    OrgName = ej:get({"name"}, OrgDesc),
-    OrgInfo#org_info{org_name = OrgName, org_id = OrgId, is_precreated = is_precreated_org(OrgDesc)}.
+    case get_org_by_guid(OrgId, Acct) of
+        not_found ->
+            not_found;
+        OrgDesc ->
+            OrgName = ej:get({"name"}, OrgDesc),
+            OrgInfo#org_info{org_name = OrgName,
+                             org_id = OrgId,
+                             is_precreated = is_precreated_org(OrgDesc)}
+    end.
+                

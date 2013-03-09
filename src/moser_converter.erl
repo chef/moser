@@ -52,19 +52,15 @@ get_chef_list() ->
     filelib:wildcard(DbPattern).
 
 expand_org_info(Org) ->
-    try
-        moser_acct_processor:expand_org_info(Org)
-    catch
-        error:Why ->
-            lager:error("ORG WILL BE SKIPPED; expand_org_info failed: ~p (~p)", [Why, Org]),
-            []
-    end.
+    moser_acct_processor:expand_org_info(Org).
 
 file_list_to_orginfo(L) ->
-    lists:flatten([expand_org_info(#org_info{db_name = F}) || F <- L]).
+    %% contains not_found items
+    Raw = [ expand_org_info(#org_info{db_name = F}) || F <- L ],
+    [ O || O <- Raw, O =/= not_found ].
 
 filter_out_precreated_orgs(OL) ->
-    [O || O <- OL, not O#org_info.is_precreated].
+    [ O || #org_info{is_precreated = false} = O <- OL ].
 
 process_insert_org(OrgInfo) ->
     Start = os:timestamp(),

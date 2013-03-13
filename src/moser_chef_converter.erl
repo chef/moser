@@ -292,8 +292,7 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc
     {ok, CBVData} = chef_cookbook:parse_binary_json(chef_json:encode(FixedData),
                                                     {Name, Version}),
     OrgId = moser_utils:get_org_id(Org),
-    BaseRecord = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
-    CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
+    CookbookVersion = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
     case chef_sql:create_cookbook_version(ObjWithDate) of
         {error, invalid_checksum} ->

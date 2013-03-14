@@ -1,0 +1,396 @@
+#+TITLE: Mover Moser Road Map
+#+OPTIONS: ^:{}
+* Mover, Moser Next Steps
+** TODO Decide on actions for all seen data errors
+See [[Full Sweep 2013-03-14]] below for the most recent enumeration of
+known data failures during a test migration run. We need to identify
+a course of action for each error type.
+** TODO Implement action for known data errors
+The previous task resulted in documentation describing action to take
+for each error type. Actions may involve:
+- contacting customers
+- fixing data in OHC couchdb
+- adding fixup logic to moser prior to validation/insert
+- fixing erchef validation logic
+- adding moser logic to ignore certain errors
+** TODO Integrate with solr re-index
+We are generating new object IDs during migration. This allows us to
+reformat the inconsistent object ids some of which have embedded
+dashes. It also allows us to generate ids prefixed with org_id to
+give better locality of an org's data in indices.
+
+Since search relies on object id, we need to delete objects from solr
+and put them on the queue for reindexing. We did this for the node
+migration. Since we may end up doing cleanup edits on some objects,
+it will be good to reindex those.
+
+There is some existing code in mover for reindexing that we might be
+able to borrow or reuse.
+** TODO Teach mover/moser to record migration status in db
+Currently all migration status is logged via lager. We want a subset
+of this data to be persisted in the db. We need a schema (thinking
+add a table to the main chef db) and code to make it happen.
+*** Design table schema
+- org name
+- org id
+- object type
+- orig object id
+- couchdb revision (needed to issue a delete in 1 call)
+- new object id
+- status (ok, ok_edit, skip, error)
+- detail (error, edit, skip detail or reason)
+- object gzip JSON (only for error objects)
+- migration time ms
+*** Teach decouch how to return rev id for use with delete
+Look at couch_doc.erl and to_json_rev and where it gets called. Then
+look at decouch_reader.erl and process_each_doc. Looks like we have
+the #doc{} record at that point and could extract and pass along rev
+id.
+*** add sqerl code to moser to record status
+In order to use this data for data cleaning (removing data from
+couchdb), we need to ensure we record old object id and couchdb
+rev. May need to modify decouch to pass along rev. Need to research
+bulk delete API for couchdb.
+http://wiki.apache.org/couchdb/HTTP_Bulk_Document_API
+** TODO Integrate mover with moser
+Goal is to be able to drive the migration via mover and demonstrate
+parallel org workers.
+** TODO Plan data cleaning component
+To take advantage of the migration, we need to delete objects and
+views from CouchDB.
+** TODO Implement data cleaning component
+** DONE Review serialized object encoding
+  CLOSED: [2013-03-14 Thu 15:42]
+I think we are missing some gzip'ing where we should be doing it. May
+not break code, but not what we want.
+
+Solved: using chef_object:new_record consistently.
+** DONE Generate org id prefixed ids like for nodes
+  CLOSED: [2013-03-14 Thu 15:43]
+Solved: using chef_object:new_record consistently.
+
+** DONE Ignore objects if missing authz id
+How do we know that authz id is really missing as opposed to just not
+in the captured acct db? Do we want to attempt a read through for
+such objects?  
+** DONE Fix file list to org info
+  CLOSED: [2013-03-14 Thu 15:43]
+#+BEGIN_EXAMPLE
+CO = moser_converter:file_list_to_orginfo(CL), length(CO).
+
+Lots of these:
+src/moser_converter.erl:59:<0.125.0>: Couldn't expand {org_info,undefined,undefined,
+                          "/mnt/couch_data/databases/chef_fbb346bea18243b6b058ece9a1e5a367.couch",
+                          false,undefined,undefined,undefined,undefined}
+{badmatch,[]}
+
+#+END_EXAMPLE
+* Full Sweep 2013-03-14
+Note: A few org names are included below. For ultra privacy, we
+should expunge this from git history when we are done. Otherwise, an
+effort has been made to only include generic data or data from our
+own orgs.
+** Code used for migration test
+| repo       | rev                                      |
+| chef-mover | dcf41c0424e21268398021c900609ceb54b90924 |
+| moser      | b5ba25ee7d11972aad2e21ab882fe7c659bbed27 |
+| decouch    | a5c5889a38a71b5da62a184308ee08124bea9aa2 |
+** Run Summary
+The full sweep executed against a somewhat stale data snapshot
+mounted via EBS by Mark A. some weeks ago. Migration completed in 115
+minutes.
+
+Logs show completed migration runs for 16571 orgs.
+** Duplicate authz ids (2)
+There are two instances of data insert failures due to authz_id being
+already present in the table.
+
+#+BEGIN_EXAMPLE
+fgrep "duplicate key value violates" error.log
+[error] {databag,chef_sql} chungachang (f59ac986551944519fafca5bf1f1565a): FAILED {{{conflict,<<"duplicate key value violates unique constraint \"data_bags_authz_id_key\"">>},<<"38568e69-f216-45b6-9ab3-c0b3c796eac4">>,<<"fae099cbe483b0ac6c57884a63fd2501">>}, ...
+[error] {role,chef_sql} sonian-mailtrust0 (54a98f6ea5c74204978340eb40712b20): FAILED {{{conflict,<<"duplicate key value violates unique constraint \"roles_authz_id_key\"">>},<<"0e6718fd-e2ee-4bad-a053-8b251317f01d">>,<<"36bce252af1073432001466deb8c8c47">>}, ...
+#+END_EXAMPLE
+
+For these two objects we find their insert logs by using the original
+object ids as search keys in console.log. The format of the "INSERT
+LOG" messages is: =TYPE OLDID NEWID AUTHZID NAME=.
+
+#+BEGIN_EXAMPLE
+[info] chungachang (f59ac986551944519fafca5bf1f1565a): INSERT LOG FAIL: data_bag 38568e69-f216-45b6-9ab3-c0b3c796eac4 ca5bf1f1565a07fe0c3aaa687e70df50 fae099cbe483b0ac6c57884a63fd2501 mmm
+[info] sonian-mailtrust0 (54a98f6ea5c74204978340eb40712b20): INSERT LOG FAIL: role 0e6718fd-e2ee-4bad-a053-8b251317f01d 40eb40712b2095d3a208a81eb57d022e 36bce252af1073432001466deb8c8c47 force_deploy
+#+END_EXAMPLE
+
+So next we search the resulting pg db for those authz_ids:
+#+BEGIN_EXAMPLE
+opscode_chef_test=# select id, org_id, name from roles where authz_id = '36bce252af1073432001466deb8c8c47';
+                id                |              org_id              |     name     
+----------------------------------+----------------------------------+--------------
+ 40eb40712b200d51b4087a4da6d66cf0 | 54a98f6ea5c74204978340eb40712b20 | force_deploy
+(1 row)
+
+opscode_chef_test=# select id, org_id, name from data_bags where authz_id = 'fae099cbe483b0ac6c57884a63fd2501';
+                id                |              org_id              | name 
+----------------------------------+----------------------------------+------
+ ca5bf1f1565ab4a99ebde9994053ff57 | f59ac986551944519fafca5bf1f1565a | mmm
+(1 row)
+#+END_EXAMPLE
+
+In both cases, the duplicate authz id is in the same org. Moreover,
+both cases correspond to what appear to be duplicate objects (same
+name).
+
+Since data_bag objects are just a name and an authz_id (FK relation
+goes via org_id/name) we can safely ignore this instance (and not
+worry about which we are ignoring).
+
+For the role in the sonian org, the roles are identical. Here's the
+data we failed to insert (formatted from the data logged in error.log):
+#+BEGIN_SRC erlang
+{[{<<"name">>, <<"force_deploy">>},
+  {<<"default_attributes">>, {[]}},
+  {<<"json_class">>, <<"Chef::Role">>},
+  {<<"run_list">>, []},
+  {<<"description">>, <<>>},
+  {<<"chef_type">>, <<"role">>},
+  {<<"override_attributes">>,
+   {[{<<"deploy">>,
+      {[{<<"sonian_website">>,
+         {[{<<"action">>, <<"force_deploy">>}]}},
+        {<<"sonian_api">>,
+         {[{<<"action">>, <<"force_deploy">>}]}}]}}]}}]}
+#+END_SRC
+
+And from the db:
+
+#+BEGIN_SRC erlang
+S = "1f8b08000000000000037d8f3d0ec2300c85efe2b927c8ca0d5811b2dcd4154621891cb7a8aa7a775c28030b9b7fbee7f7bc42a6074380b168641cb8a6b24007038f3425433253e927e30661dd3ab8b79231266adec3e9c66308e792d8153a654cd20cc2e5baeb5b54a926253be8ebe82cda52772ffd28caccaa32f0af091c19bc722fa18c4fee9b18ef138ac7c59fb89eeb40a9ca1f6c7390f38cdfa8ef9fb6170accb3b203010000".
+counts:decode_pg_hex_blob(S).
+
+{[{<<"name">>,<<"force_deploy">>},
+  {<<"default_attributes">>,{[]}},
+  {<<"json_class">>,<<"Chef::Role">>},
+  {<<"run_list">>,[]},
+  {<<"description">>,<<>>},
+  {<<"chef_type">>,<<"role">>},
+  {<<"override_attributes">>,
+   {[{<<"deploy">>,
+      {[{<<"sonian_website">>,
+         {[{<<"action">>,<<"force_deploy">>}]}},
+        {<<"sonian_api">>,
+         {[{<<"action">>,<<"force_deploy">>}]}}]}}]}},
+  {<<"env_run_lists">>,{[]}}]}
+
+#+END_SRC
+
+Using the authz_id 36bce252af1073432001466deb8c8c47 and looking in the
+pg db resulting from the migration reveals another role with same
+authz_id with **the same org_id**. Assuming that is also the case for
+the databag, our fix approach should be to clone the ACL and create a
+new authz_id. Given the low frequency, we should consider fixing
+ahead of time and skipping objects that encounter this at time of
+migration.
+
+I kicked off another run before validating the chungachang data
+bag. I did review the dup authz_id errors reported earlier and they
+were spurious reports resulting from a bug I introduced (and fixed)
+in moser that didn't handle missing authz data properly. All of the
+others failed because of missing authz id.
+
+** Invalid run list in role (356)
+These are roles with an invalid run list.  Examples can be extracted
+from the error log as follows:
+#+BEGIN_EXAMPLE
+fgrep '{role,array_elt,<<"run_list">>' error.log
+#+END_EXAMPLE
+
+Options:
+
+1. We could edit the roles on the way in and set an empty run list.
+2. We could skip these roles
+3. Communicate with customers and try to get fixes in
+** Invalid cookbook_version metadata.providing value (287)
+I think the issue here is that our validation is wrong in erchef. See
+[[http://tickets.opscode.com/browse/CHEF-3976][CHEF-3976]] for some details. Not totally sure what we want as the
+fix. Should we just verify that we have a string here or is it worth
+trying to verify the rather broad allowed values?
+
+#+BEGIN_EXAMPLE
+fgrep '{cookbook_version,object_key,<<"metadata.providing">>' e1.log|wc -l
+     287
+#+END_EXAMPLE
+
+** Invalid cookbook_versions field in environment object (320)
+All of these are cases where one or more cookbook version constraints
+is specified as a bare version rather than a version constraint
+string. That is, ="1.2.3"= instead of ="= 1.2.3"=.
+
+For these cases, we should either fix erchef and allow bare version as
+a synonym for equality pin. Or fix the constraints on the way in and
+add the equal sign.
+
+#+BEGIN_EXAMPLE
+fgrep '{environment,object_value,<<"cookbook_versions">>' e1.log|wc -l
+     320
+
+{environment,object_value,<<"cookbook_versions">>,<<"0.0.1">>} opscodesupport (edd72afd635d486da63868f65475a92d): FAILED {<<"Invalid cookbook version">>, {{environment,<<"58b22f90-c3e6-4e3e-903b-2e1db6f79046">>},
+#+END_EXAMPLE
+
+#+BEGIN_SRC erlang
+{[
+  {<<"name">>, <<"testenvironment">>},
+  {<<"default_attributes">>, {[]}},
+  {<<"json_class">>, <<"Chef::Environment">>},
+  {<<"description">>, <<"This is the second 1">>},
+  {<<"cookbook_versions">>,
+   {[{<<"version-test">>, <<"0.0.1">>}]}},
+  {<<"override_attributes">>, {[]}},
+  {<<"chef_type">>, <<"environment">>}]}
+
+#+END_SRC
+
+Note that current OHC allows you to create more like this.
+** Invalid cookbook_version metadata.dependencies with old-style constraint (18)
+These are all cookbooks containing a version constraint expressed as
+=">> 0.9"=. We could translate the old-style constraint?
+
+#+BEGIN_EXAMPLE
+01:11:50.611 [error] {cookbook_version,object_value,<<"metadata.dependencies">>,<<">> 0.9">>} kallistec (37d2c76388e546e6a7b269cc3e37f8ee):
+FAILED {<<"Invalid version constraint">>, {{cookbook_version,<<"64db88fd-7d05-455a-825d-049d65f67042">>},
+
+{<<"metadata">>,{[{<<"name">>,<<"zenoss">>},
+  {<<"dependencies">>,{[{<<"openssl">>,[]},
+                      {<<"apt">>,[<<">> 0.9">>]},
+                      {<<"openssh">>,[]}]}},
+#+END_EXAMPLE
+** Invalid cookbook_version metadata.dependencies object_key (281)
+These appear to all be examples where a fully qualified recipe was
+used in place of the cookbook name when specifying a cookbook_version
+object's metadata.dependencies.  So for example:
+
+#+BEGIN_EXAMPLE
+fgrep '{cookbook_version,object_key,<<"metadata.dependencies">>' e2.log|wc -l
+     281
+
+{<<"metadata">>,
+  {[{<<"dependencies">>,
+    {[{<<"logrotate">>,[]},
+      {<<"postgresql::client">>,[]},
+      {<<"ruby_enterprise">>,[]},
+      {<<"apache2">>,[]},
+      {<<"rsyslog::client">>,[]}]}}
+#+END_EXAMPLE
+
+These ones we could consider fixing because the intent is clear and
+we just need the LHS of the '::'. Not all of the errors are in this
+class. Here's one example where ="_mdsol_base,"= is not a valid
+cookbook name. Fun typo.
+
+#+BEGIN_EXAMPLE
+{cookbook_version,object_key,<<"metadata.dependencies">>,<<"_mdsol_base,">>}
+#+END_EXAMPLE
+** Invalid "recipes" key in role object (75)
+#+BEGIN_EXAMPLE
+ fgrep '{role,invalid_key}' e2.log|wc -l
+      75
+#+END_EXAMPLE
+
+Here's an example role.
+#+BEGIN_SRC erlang
+{[{<<"name">>, <<"opscode-audit">>},
+  {<<"default_attributes">>, {[]}},
+  {<<"json_class">>, <<"Chef::Role">>},
+  {<<"recipes">>, [<<"opscode-audit">>]},
+  {<<"description">>, <<"Opscode Audit Service">>},
+  {<<"chef_type">>, <<"role">>},
+  {<<"override_attributes">>, {[]}}]}}
+#+END_SRC
+
+Could we just nuke such a key and insert it.
+** '{cookbook_version,object_key,<<"metadata.platforms">>' (20)
+These look like actually malformed things. Not sure what we want to
+do:
+
+#+BEGIN_EXAMPLE
+<<"metadata.platforms">>,<<"mac_os_x,">>}
+<<"metadata.platforms">>,<<"ubuntu>= 10.04">>}
+<<"metadata.platforms">>,<<"ubuntu>= 10.04">>}
+<<"metadata.platforms">>,<<"centos,">>}
+<<"metadata.platforms">>,<<"centos,">>}
+<<"metadata.platforms">>,<<"debian, ubuntu">>}
+<<"metadata.platforms">>,<<" debian ubuntu ">>}
+<<"metadata.platforms">>,<<"centos,">>}
+<<"metadata.platforms">>,<<"centos,">>}
+<<"metadata.platforms">>,<<"centos,">>}
+<<"metadata.platforms">>,<<"ubuntu,centos">>}
+<<"metadata.platforms">>,<<"debian, ubuntu">>}
+<<"metadata.platforms">>,<<"\"amazon">>}
+<<"metadata.platforms">>,<<"centos,">>}
+<<"metadata.platforms">>,<<"debian, ubuntu">>}
+<<"metadata.platforms">>,<<"debian, ubuntu">>}
+<<"metadata.platforms">>,<<"ubuntu, archlinux">>}
+<<"metadata.platforms">>,<<"debian, ubuntu">>}
+<<"metadata.platforms">>,<<"mac_os_x,">>}
+<<"metadata.platforms">>,<<"debian, ubuntu">>}
+#+END_EXAMPLE
+** '{cookbook_version,object_value,<<"metadata.platforms">>' (59)
+These all look like:
+#+BEGIN_EXAMPLE
+<<"metadata.platforms">>,<<">= 5">>
+#+END_EXAMPLE
+** 'bad_cookbook_name' (8)
+These are all cookbooks with '+' in name. Did we become over-strict?
+Do these cookbooks actually work in current OHC?
+** '{cookbook_version,string_match,<<"metadata.name">>,<<>>}' (205)
+These all appear to be cookbook versions where the metadata.name
+field is empty string.
+** 'cookbook_version FAILED {error:function_clause' (2)
+So these are crashes in the constraint cleaner in moser itself where
+we are encountering old-style constraints =<<=.
+#+BEGIN_EXAMPLE
+[{moser_chef_converter,clean_constraint,[[<<">> 8.2">>,<<"<< 9.0">>]],[{file,"src/moser_chef_converter.erl"},{line,401}]}
+
+[{moser_chef_converter,clean_constraint,[[<<">= 5">>,<<"<< 6">>]],[{file,"src/moser_chef_converter.erl"},{line,401}]}
+#+END_EXAMPLE
+** '{cookbook_version,exact,<<"name">>' (16)
+These look like cases where cbv name/version attributes don't align.
+** '{cookbook_version,invalid_key}' (2)
+I think these are cbv's that have a top-level "id" field and we're
+rejecting them. Could probably safely delete this field before insert.
+** '{cookbook_version,object_key,<<"metadata.conflicting">>' (3)
+So here in the conflicting field of cbv metadata we have fully
+qualified recipes instead of cookbook names.
+#+BEGIN_EXAMPLE
+<<"php::module_xdebug">>
+<<"php::module_xdebug">>
+ <<"php::module_xdebug">>
+#+END_EXAMPLE
+** '{databag,chef_sql}' (1)
+This is the chungachang dup data_bag
+** '{databag_item,chef_sql}' (14)
+I think these are all orphan data bag items, but we should verify.
+All in alvarotesting in the "credentials" data bag.
+** '{environment,object_key,<<"cookbook_versions">>,' (4)
+These are all bad cookbook names in cookbook_versions field of
+environment object.
+#+BEGIN_EXAMPLE
+{environment,object_key,<<"cookbook_versions">>,<<"kickstart\t">>} springsense (c5d17db2fed74e94a6d8fc85f2ecf642)
+{environment,object_key,<<"cookbook_versions">>,<<"nginx ">>} sencha (3383ef17e13e401ea3715f9175460607)
+{environment,object_key,<<"cookbook_versions">>,<<"users::family">>} beerta (7480839be08c4e20a0d00dc72eca02f5)
+{environment,object_key,<<"cookbook_versions">>,<<"users::sysadmins">>} wgtsports (11850acb08fd4a94b3642c3bc48ba843)
+#+END_EXAMPLE
+** '{environment,string_match,<<"name">>' (4)
+Invalid environment names containing tab or newline
+#+BEGIN_EXAMPLE
+00:48:34.325 [error] {environment,string_match,<<"name">>,<<"testit1\n\t">>} sean-horn-opscode (3eca786473a44f68a91c1279ce6c845b): FAILED 
+00:48:36.282 [error] {environment,string_match,<<"name">>,<<"testit\n\t">>} sean-horn-opscode (3eca786473a44f68a91c1279ce6c845b): FAILED {
+00:48:36.343 [error] {environment,string_match,<<"name">>,<<"testit2\n\t">>} sean-horn-opscode (3eca786473a44f68a91c1279ce6c845b): FAILED 
+01:21:01.213 [error] {environment,string_match,<<"name">>,<<"velop\n* STORM-5175_moncron_config">>} gba-org (ec4fe73a5d284aaeac144dd18c8dd
+#+END_EXAMPLE
+** '{role,chef_sql}' (1)
+This is the sonian org duplicate role
+** '{role,object_value,<<"env_run_lists">>' (3)
+Bad environment-specific run list in role
+#+BEGIN_EXAMPLE
+<<"recipe[recipe[recipe[recipe[recipe[recipe[recipe[recipe[recipe[recipe[]]]]]]]]]]">>} 
+#+END_EXAMPLE
+

@@ -76,7 +76,13 @@ insert(#org_info{} = Org) ->
 %% Checksums need to be inserted before other things
 %%
 insert_checksums(#org_info{} = Org, Totals) ->
-    insert_objects(Org, Totals, fun insert_checksums/3, "checksum").
+    {T, R} =
+        timer:tc(fun() ->
+                         insert_objects(Org, Totals, fun insert_checksums/3, "checksum")
+                 end),
+    lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
+               [moser_utils:us_to_secs(T)]),
+    R.
 
 insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
     OrgId = moser_utils:get_org_id(Org),
@@ -112,7 +118,7 @@ insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
             OrgId = moser_utils:get_org_id(Org),
             DataBag = chef_object:new_record(chef_data_bag, OrgId, AuthzId, Name),
             ObjWithDate = chef_object:set_created(DataBag, RequesterId),
-            {ok, 1} = chef_sql:create_data_bag(ObjWithDate),
+            try_insert(Org, ObjWithDate, Id, AuthzId, fun chef_sql:create_data_bag/1),
             dict:update_counter(databag, 1, Acc);
         not_found ->
             %% ignore object if authz id not found
@@ -137,17 +143,21 @@ insert_objects(#org_info{org_name = OrgName,
                            InsertFun(Org, Item, Acc)
                        catch
                            throw:{EType, EDetail} ->
-                               Props = [{error_type, EType} | ?LOG_META(Org)],
-                               lager:error(Props, "~s FAILED {~p, ~p, ~p}",
-                                           [Type, EDetail, Item, erlang:get_stacktrace()]),
+                               RealType = type_for_object(Item),
+                               Props = [{error_type, {RealType, EType}} | ?LOG_META(Org)],
+                               lager:error(Props, "FAILED {~p, ~p, ~p}",
+                                           [EDetail, Item, erlang:get_stacktrace()]),
                                Acc;
-                           throw:#ej_invalid{msg = Msg, found = Found, key = Key} ->
-                               Props = [{error_type, Msg}| ?LOG_META(Org)],
-                               lager:error(Props, "~s insert FAILED {~p, ~p}", [Type, Key, Found]),
+                           throw:#ej_invalid{msg = Msg, type = SpecType, found = Found, key = Key} ->
+                               RealType = type_for_object(Item),
+                               Props = [{error_type, {RealType, SpecType, Key, Found}}| ?LOG_META(Org)],
+                               lager:error(Props, "FAILED {~p, ~p}",
+                                           [Msg, Item]),
                                Acc;
                            Error:Why ->
-                               lager:error(?LOG_META(Org), "~s insert FAILED {~p:~p, ~p, ~p}",
-                                           [Type,
+                               RealType = type_for_object(Item),
+                               lager:error(?LOG_META(Org), "~s FAILED {~p:~p, ~p, ~p}",
+                                           [RealType,
                                             Error, Why, Item, erlang:get_stacktrace()]),
                                Acc
                        end
@@ -183,6 +193,14 @@ id_for_object({{client, _Name}, {Id, _}}) ->
 id_for_object({{_Type, Id}, _}) ->
     Id.
 
+type_for_object({{client, _}, {_, _}}) ->
+    client;
+type_for_object({{Type, _}, _}) ->
+    Type;
+type_for_object(_) ->
+    unknown_type.
+
+
 insert_one(Org, {{Type, _IdOrName}, _} = Object, Acc) ->
     Name = name_for_object(Object),
     Id = id_for_object(Object),
@@ -203,7 +221,7 @@ insert_one(_Org, Item, Acc) ->
     Acc.
 
 insert_one(#org_info{org_name = OrgName} = Org,
-           {{client, Name}, {_Id, Data}},
+           {{client, Name}, {OldId, Data}},
            AuthzId, RequesterId, Acc) ->
     {ok, ClientData0} = chef_client:oc_parse_binary_json(chef_json:encode(Data),
                                                          Name, not_found),
@@ -213,9 +231,9 @@ insert_one(#org_info{org_name = OrgName} = Org,
     OrgId = moser_utils:get_org_id(Org),
     Client = chef_object:new_record(chef_client, OrgId, AuthzId, ClientData),
     ObjWithDate = chef_object:set_created(Client, RequesterId),
-    {ok, 1} = chef_sql:create_client(ObjWithDate),
+    try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_client/1),
     dict:update_counter(client, 1, Acc);
-insert_one(Org, {{databag_item = Type, _Id}, Data}, _AuthzId, RequesterId, Acc) ->
+insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc) ->
     BagName = ej:get({<<"data_bag">>}, Data),
     %% returns an unwrapped DBI
     {ok, ItemData} = chef_data_bag_item:parse_binary_json(chef_json:encode(Data), create),
@@ -223,33 +241,29 @@ insert_one(Org, {{databag_item = Type, _Id}, Data}, _AuthzId, RequesterId, Acc) 
     DataBagItem = chef_object:new_record(chef_data_bag_item, OrgId, no_authz,
                                          {BagName, ItemData}),
     ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
-    case chef_sql:create_data_bag_item(ObjWithDate) of
-        {ok, 1} ->
-            ok;
-        {Key, Msg} when Key =:= foreign_key;
-                        Key =:= conflict ->
-            lager:error(?LOG_META(Org), "create_data_bag_item failed: ~p",
-                        [{Key, Msg, ObjWithDate}])
-    end,
+    try_insert(Org, ObjWithDate, OldId, <<"unset">>, fun chef_sql:create_data_bag_item/1),
     dict:update_counter(Type, 1, Acc);
-insert_one(Org, {{role, _Id}, Data}, AuthzId, RequesterId, Acc) ->
+insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for
     %% validation and normalization.
     {ok, RoleData} = chef_role:parse_binary_json(chef_json:encode(Data), create),
     OrgId = moser_utils:get_org_id(Org),
     Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
     ObjWithDate = chef_object:set_created(Role, RequesterId),
-    {ok, 1} = chef_sql:create_role(ObjWithDate),
+    try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_role/1),
     dict:update_counter(role, 1, Acc);
 %% Environments
-insert_one(Org, {{environment, _Id}, Data}, AuthzId, RequesterId, Acc) ->
+insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     OrgId = moser_utils:get_org_id(Org),
-    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data)),
+    %% first version of environments had a top-level attributes key which is no longer
+    %% allowed. If the key is present with an empty value, just remove it.
+    Data1 = remove_empty_top_level_attributes(Data),
+    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data1)),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
-    {ok, 1} = chef_sql:create_environment(ObjWithDate),
+    try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_environment/1),
     dict:update_counter(environment, 1, Acc);
-insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc) ->
+insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,
                       <<"platforms">>,
@@ -277,8 +291,7 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc
     {ok, CBVData} = chef_cookbook:parse_binary_json(chef_json:encode(FixedData),
                                                     {Name, Version}),
     OrgId = moser_utils:get_org_id(Org),
-    BaseRecord = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
-    CookbookVersion = BaseRecord#chef_cookbook_version{id = moser_utils:fix_chef_id(Id)},
+    CookbookVersion = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
     case chef_sql:create_cookbook_version(ObjWithDate) of
         {error, invalid_checksum} ->
@@ -287,13 +300,16 @@ insert_one(Org, {{cookbook_version = Type, Id}, Data}, AuthzId, RequesterId, Acc
             %% (perhaps as a result of using --purge). So we log and skip these.
             Props = [{error_type, cookbook_version_missing_checksum}| ?LOG_META(Org)],
             lager:warning(Props, "cookbook_version ~s (~s) SKIPPED missing checksums",
-                          [ej:get({"name"}, Data), Id]),
+                          [ej:get({"name"}, Data), OldId]),
+            log_insert(skip, Org, OldId, AuthzId, ObjWithDate),
             Acc;
         {ok, 1} ->
+            log_insert(ok, Org, OldId, AuthzId, ObjWithDate),
             dict:update_counter(Type, 1, Acc);
         Error ->
+            log_insert(fail, Org, OldId, AuthzId, ObjWithDate),
             lager:error(?LOG_META(Org), "cookbook_version ~s (~s) SKIPPED ~p",
-                        [ej:get({"name"}, Data), Id, Error]),
+                        [ej:get({"name"}, Data), OldId, Error]),
             Acc
     end;
 %% Old style cookbooks
@@ -319,6 +335,54 @@ insert_one(_Org, {orgname, _}, _AuthzId, _RequesterId, Acc) ->
 insert_one(Org, Item, _AuthzId, _RequesterId, Acc) ->
     lager:warning(?LOG_META(Org), "unexpected item in insert_one: ~p", [Item]),
     Acc.
+
+%% Almost all of the insert operations call a `chef_sql:create_*(ObjectRec)' function and
+%% expect a return of `{ok, 1}'. This function handles this common case and logs details
+%% about the insert attempt along with OK/FAIL status.
+try_insert(Org, ObjectRec, OldId, AuthzId, Fun) ->
+    Status = try Fun(ObjectRec) of
+                 {ok, 1} -> ok;
+                 Error ->
+                     {chef_sql, {Error, OldId, AuthzId}}
+             catch
+                 EType:Why ->
+                     {chef_sql, {{EType, Why}, OldId, AuthzId}}
+             end,
+    log_insert(Status, Org, OldId, AuthzId, ObjectRec),
+    throw_not_ok(Status).
+
+throw_not_ok(ok) ->
+    ok;
+throw_not_ok(Error) ->
+    throw(Error).
+
+log_insert(Status, Org, OldId, AuthzId, ObjectRec) ->
+    LogStatus = case Status of
+                    ok   -> <<"OK">>;
+                    skip -> <<"SKIP">>;
+                    _    -> <<"FAIL">>
+                end,
+    NewId = chef_object:id(ObjectRec),
+    Name = case chef_object:name(ObjectRec) of
+               {Bag, Item} ->
+                   <<Bag/binary, ",", Item/binary>>;
+               N ->
+                   N
+           end,
+    Type = chef_object:type_name(ObjectRec),
+    lager:info(?LOG_META(Org), "INSERT LOG ~s: ~s ~s ~s ~s ~s",
+               [LogStatus, Type, OldId, NewId, AuthzId, Name]),
+    Status.
+
+%% Intended for use with environment objects, removes a top-level "attributes" key if the
+%% value is an empty hash.
+remove_empty_top_level_attributes(Data) ->
+    case ej:get({<<"attributes">>}, Data) of
+        {[]} ->
+            ej:delete({<<"attributes">>}, Data);
+        _ ->
+            Data
+    end.
 
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that

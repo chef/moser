@@ -246,7 +246,18 @@ insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc
 insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for
     %% validation and normalization.
-    {ok, RoleData} = chef_role:parse_binary_json(chef_json:encode(Data), create),
+    
+    %% Attempt to parse the role, and capture specifically run list parse errors
+    {ok, RoleData} = try
+        chef_role:parse_binary_json(chef_json:encode(Data), create)
+    catch
+        throw:#ej_invalid{msg = _Msg, type = array_elt, found = BadValue, key = <<"run_list">>} ->
+            Props = [{error_type, invalid_role_run_list}| ?LOG_META(Org)],
+            lager:warning(Props, "Replacing bad role run_list '~p' with empty run list.", [BadValue]),
+            FixedData = ej:set({<<"run_list">>}, Data, []), 
+            % Any further validation errors will be passed up the chain.
+            chef_role:parse_binary_json(chef_json:encode(FixedData), create)
+    end,
     OrgId = moser_utils:get_org_id(Org),
     Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
     ObjWithDate = chef_object:set_created(Role, RequesterId),
@@ -258,7 +269,8 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% first version of environments had a top-level attributes key which is no longer
     %% allowed. If the key is present with an empty value, just remove it.
     Data1 = remove_empty_top_level_attributes(Data),
-    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data1)),
+    Data2 = fix_constraints(Org, Data1),
+    {ok, EnvData}  = chef_environment:parse_binary_json(chef_json:encode(Data2)),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
     try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_environment/1),
@@ -383,6 +395,33 @@ remove_empty_top_level_attributes(Data) ->
         _ ->
             Data
     end.
+
+%% Intended for use with environment objects, cleans up cookbook version constraints 
+%% using incorrect format '0.0.0' instead of '=> 0.0.0' 
+fix_constraints(Org, Data) -> 
+    Constraints = ej:get({<<"cookbook_versions">>}, Data),
+    NewConstraints = [ fix_constraint(Org, Constraint) || Constraint <- Constraints ],
+    ej:set({<<"cookbook_version">>}, Data, NewConstraints).
+
+fix_constraint(Org, { Name, Version } ) ->
+    % We can't use 'chef_object:parse_constraint' here because it will consider the invalid 
+    % constraint we're looking for  (in form of "x.x.x"  instead of "= x.x.x") to be valid.
+
+    % TODO - cache this and thread it through? 
+    {ok, Regex} = re:compile("^[[:digit:]]+(\\.[[:digit:]]+){1,2}$"),
+    case re:run(Version, Regex) of 
+        {match, _} -> 
+            NewVersion = <<"= ", Version/binary>>,
+            Props = [{error_type, invalid_environment_cookbook_version}| ?LOG_META(Org)],
+            lager:warning(Props, "Replacing bad version constraint '~p' with '~p' for '~p'", 
+                [Version, NewVersion, Name]),
+            {Name, NewVersion};
+        nomatch ->
+            % Matching indicates it's in a form (correct or incorrect) that we're not 
+            % interested in modifying.
+            {Name, Version}
+    end.
+
 
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that

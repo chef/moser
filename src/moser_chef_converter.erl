@@ -397,31 +397,21 @@ remove_empty_top_level_attributes(Data) ->
     end.
 
 %% Intended for use with environment objects, cleans up cookbook version constraints 
-%% using incorrect format '0.0.0' instead of '=> 0.0.0' 
+%% using incorrect format '0.0.0' instead of '= 0.0.0' 
 fix_constraints(Org, Data) -> 
     Constraints = ej:get({<<"cookbook_versions">>}, Data),
     NewConstraints = [ fix_constraint(Org, Constraint) || Constraint <- Constraints ],
     ej:set({<<"cookbook_version">>}, Data, NewConstraints).
 
-fix_constraint(Org, { Name, Version } ) ->
-    % We can't use 'chef_object:parse_constraint' here because it will consider the invalid 
-    % constraint we're looking for  (in form of "x.x.x"  instead of "= x.x.x") to be valid.
-
-    % TODO - cache this and thread it through? 
-    {ok, Regex} = re:compile("^[[:digit:]]+(\\.[[:digit:]]+){1,2}$"),
-    case re:run(Version, Regex) of 
-        {match, _} -> 
-            NewVersion = <<"= ", Version/binary>>,
-            Props = [{error_type, invalid_environment_cookbook_version}| ?LOG_META(Org)],
-            lager:warning(Props, "Replacing bad version constraint '~p' with '~p' for '~p'", 
-                [Version, NewVersion, Name]),
-            {Name, NewVersion};
-        nomatch ->
-            % Matching indicates it's in a form (correct or incorrect) that we're not 
-            % interested in modifying.
-            {Name, Version}
-    end.
-
+fix_constraint(Org, { Name, <<C:8, _/binary>> = Version} ) when C =< $9 andalso
+                                                                C >= $0 ->
+    NewVersion = <<"= ", Version/binary>>,
+    Props = [{error_type, invalid_environment_cookbook_version}| ?LOG_META(Org)],
+    lager:warning(Props, "Replacing bad version constraint '~p' with '~p' for '~p'",
+        [Version, NewVersion, Name]),
+    { Name, NewVersion };
+fix_constraint(_Org, { Name, Version } ) -> 
+    { Name, Version }.
 
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that

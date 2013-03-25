@@ -246,7 +246,18 @@ insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc
 insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for
     %% validation and normalization.
-    {ok, RoleData} = chef_role:parse_binary_json(chef_json:encode(Data), create),
+    
+    %% Attempt to parse the role, and capture specifically run list parse errors
+    {ok, RoleData} = try
+        chef_role:parse_binary_json(chef_json:encode(Data), create)
+    catch
+        throw:#ej_invalid{msg = _Msg, type = array_elt, found = BadValue, key = <<"run_list">>} ->
+            Props = [{error_type, invalid_role_run_list}| ?LOG_META(Org)],
+            lager:warning(Props, "Replacing bad role run_list '~p' with empty run list.", [BadValue]),
+            FixedData = ej:set({<<"run_list">>}, Data, []), 
+            % Any further validation errors will be passed up the chain.
+            chef_role:parse_binary_json(chef_json:encode(FixedData), create)
+    end,
     OrgId = moser_utils:get_org_id(Org),
     Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
     ObjWithDate = chef_object:set_created(Role, RequesterId),
@@ -258,7 +269,7 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% first version of environments had a top-level attributes key which is no longer
     %% allowed. If the key is present with an empty value, just remove it.
     Data1 = remove_empty_top_level_attributes(Data),
-    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data1)),
+    {ok, EnvData}  = chef_environment:parse_binary_json(chef_json:encode(Data1)),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
     try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_environment/1),

@@ -269,8 +269,7 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% first version of environments had a top-level attributes key which is no longer
     %% allowed. If the key is present with an empty value, just remove it.
     Data1 = remove_empty_top_level_attributes(Data),
-    Data2 = fix_constraints(Org, Data1),
-    {ok, EnvData}  = chef_environment:parse_binary_json(chef_json:encode(Data2)),
+    {ok, EnvData}  = chef_environment:parse_binary_json(chef_json:encode(Data1)),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
     try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_environment/1),
@@ -395,23 +394,6 @@ remove_empty_top_level_attributes(Data) ->
         _ ->
             Data
     end.
-
-%% Intended for use with environment objects, cleans up cookbook version constraints 
-%% using incorrect format '0.0.0' instead of '= 0.0.0' 
-fix_constraints(Org, Data) -> 
-    Constraints = ej:get({<<"cookbook_versions">>}, Data),
-    NewConstraints = [ fix_constraint(Org, Constraint) || Constraint <- Constraints ],
-    ej:set({<<"cookbook_version">>}, Data, NewConstraints).
-
-fix_constraint(Org, { Name, <<C:8, _/binary>> = Version} ) when C =< $9 andalso
-                                                                C >= $0 ->
-    NewVersion = <<"= ", Version/binary>>,
-    Props = [{error_type, invalid_environment_cookbook_version}| ?LOG_META(Org)],
-    lager:warning(Props, "Replacing bad version constraint '~p' with '~p' for '~p'",
-        [Version, NewVersion, Name]),
-    { Name, NewVersion };
-fix_constraint(_Org, { Name, Version } ) -> 
-    { Name, Version }.
 
 is_validator(OrgName, Data) ->
     %% TODO: the org record in opscode_account specifies the name of the validator; we should modify to use that

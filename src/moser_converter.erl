@@ -28,6 +28,8 @@
          file_list_to_orginfo/1,
          filter_out_precreated_orgs/1,
          full_sweep/0,
+         convert_org/1,
+         convert_org/2,
          process_insert_org/1,
          process_insert_orgs/1,
          process_file_list/1,
@@ -59,11 +61,30 @@ full_sweep() ->
     %% this returns all assigned orgs in the acct db.
     AllOrgs = moser_acct_processor:all_orgs(AcctInfo),
     %% filter out, those where we can't find the couchdb file (useful for test scenario
-    %% especially where we have a complete acct db, but partial colleciton of couchdb
+    %% especially where we have a complete acct db, but partial collection of couchdb
     %% files).
     HaveFileOrgs = [ O || O <- AllOrgs, dbfile_exists(O) ],
     {T, R} = timer:tc(fun() -> process_insert_orgs(HaveFileOrgs) end),
     {{T/1.0e6/60.0, min}, R}.
+
+%% @doc Run migration for the named org.  Fails if the org does not exist, and will take no
+%% action if the org is precreated.
+convert_org(OrgName) when is_list(OrgName) ->
+    convert_org(iolist_to_binary(OrgName));
+convert_org(OrgName) ->
+    AcctInfo = moser_acct_processor:open_account(),
+    convert_org(OrgName, AcctInfo).
+
+convert_org(OrgName, #account_info{} = AcctInfo) ->
+    case expand_org_info( #org_info{ org_name = OrgName, account_info = AcctInfo } ) of
+        not_found ->
+            Props = [{error_type, org_not_found}],
+            lager:error(Props, "Failed to find org: ~p", [OrgName]),
+            {error, not_found};
+        OrgInfo ->
+            Orgs = filter_out_precreated_orgs([OrgInfo]),
+            process_insert_orgs(Orgs)
+    end.
 
 dbfile_exists(#org_info{db_name = DbFile}) ->
     filelib:is_file(DbFile).
@@ -78,7 +99,6 @@ file_list_to_orginfo(L) ->
 
 filter_out_precreated_orgs(OL) ->
     [ O || #org_info{is_precreated = false} = O <- OL ].
-
 
 process_insert_org(OrgInfo) ->
     Start = os:timestamp(),

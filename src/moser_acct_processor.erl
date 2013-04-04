@@ -230,8 +230,8 @@ expand_org_info(#org_info{org_name = OrgName, org_id = undefined, db_name = unde
     case get_org_guid_by_name(OrgName, Acct) of
         not_found ->
             not_found;
-        OrgDesc ->
-            OrgId = ej:get({"guid"}, OrgDesc),
+        OrgId ->
+            OrgDesc = get_org_by_guid(OrgId, Acct),
             DbName = moser_utils:get_dbname_from_orgid(OrgId),
             OrgInfo#org_info{org_id = OrgId,
                              db_name = DbName,

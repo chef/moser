@@ -473,8 +473,8 @@ get_user_side_auth_id_generic(Auth, Type, Name) ->
 
 user_to_auth(_, not_found) ->
     {fail, user_side_authz_not_found};
-user_to_auth(#org_info{account_info=Acct}, UserId) ->
-    moser_acct_processor:user_to_auth(Acct, UserId).
+user_to_auth(#org_info{account_info=Acct}=Org, UserId) ->
+    moser_acct_processor:user_to_auth(Acct, UserId, ?LOG_META(Org)).
 
 sqerl_delete_helper(Table, Where) ->
     case sqerl:adhoc_delete(Table, Where) of

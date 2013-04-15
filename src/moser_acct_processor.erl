@@ -29,7 +29,7 @@
          close_account/1,
          process_account_file/0,
          cleanup_account_info/1,
-         user_to_auth/2,
+         user_to_auth/3,
          get_org_guid_by_name/2,
          get_org_by_guid/2,
          is_precreated_org/1,
@@ -62,7 +62,8 @@ open_account() ->
                    authz_to_user = A2U,
                    orgname_to_guid = O2G,
                    orgs_by_guid = Orgs,
-                   db = Db
+                   db = Db,
+                   couch_cn = chef_otto:connect()
                  }.
 
 close_account(#account_info{user_to_authz = U2A,
@@ -149,12 +150,23 @@ process_item_by_type(_Type, _Acct, _Key, _Body) ->
     %% happily ignore unknown types
     ok.
 
-user_to_auth(_, bad_id) ->
+user_to_auth(_, bad_id, _LogContext) ->
     <<"bad_authz_id">>;
-user_to_auth(#account_info{user_to_authz = U2A}, Id) ->
+user_to_auth(#account_info{user_to_authz = U2A, couch_cn = Cn}, Id, LogContext) ->
     case dets:lookup(U2A, Id) of
         [{Id,V}] -> {ok, V};
-        [] -> {fail, authz_id_not_found}
+        [] -> user_to_auth_live(Cn, Id, LogContext)
+    end.
+
+user_to_auth_live(Cn, Id, LogContext) ->
+    lager:warning(LogContext, "Fallback lookup of user-side id: ~s", [Id]),
+    case chef_otto:fetch_auth_join_id(Cn, Id, user_to_auth) of
+        {not_found, missing} ->
+            {fail, authz_id_not_found};
+        {not_found, Why } ->
+            {fail, {authz_id_not_found, Why}};
+        AuthId ->
+            {ok, AuthId}
     end.
 
 %% @doc Return a list of `org_info' records for all assigned orgs.
@@ -263,4 +275,4 @@ expand_org_info(#org_info{org_name = undefined, org_id = undefined, db_name = Db
                              org_id = OrgId,
                              is_precreated = is_precreated_org(OrgDesc)}
     end.
-                
+

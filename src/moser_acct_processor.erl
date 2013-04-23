@@ -80,7 +80,7 @@ process_account_file() ->
     Account = open_account(),
     DbName = lists:flatten([moser_converter:get_couch_path(), "opscode_account.couch"]),
 
-    IterFn = fun(Key, Body, AccIn) ->
+    IterFn = fun(Key, _RevId, Body, AccIn) ->
                      process_account_item(Account, Key, Body),
                      AccIn
              end,

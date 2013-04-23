@@ -61,7 +61,7 @@ process_couch_file(#org_info{db_name=DbName} = OrgInfo) ->
     Org = OrgInfo#org_info{ chef_ets = CData,
                             auth_ets = AData,
                             start_time = os:timestamp()},
-    IterFn = fun(Key, Body, AccIn) ->
+    IterFn = fun(Key, _RevId, Body, AccIn) ->
                      process_couch_item(Org, Key, Body),
                      AccIn
              end,

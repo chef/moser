@@ -49,7 +49,7 @@ dets_open_file(Name) ->
     Dir = envy:get(moser, moser_dets_dir,
                    "/srv/piab/mounts/moser",
                    string),
-    dets:open_file(Name, [{file, lists:flatten([Dir,"/",atom_to_list(Name)])}]).
+    dets:open_file(Name, [{file, filename:join([Dir, atom_to_list(Name)])}]).
 
 open_account() ->
     {ok, U2A} = dets_open_file(user_to_authz),
@@ -78,7 +78,7 @@ close_account(#account_info{user_to_authz = U2A,
 
 process_account_file() ->
     Account = open_account(),
-    DbName = lists:flatten([moser_converter:get_couch_path(), "opscode_account.couch"]),
+    DbName = filename:join([moser_converter:get_couch_path(), "opscode_account.couch"]),
 
     IterFn = fun(Key, _RevId, Body, AccIn) ->
                      process_account_item(Account, Key, Body),

@@ -145,18 +145,18 @@ insert_objects(#org_info{org_name = OrgName,
                            throw:{EType, EDetail} ->
                                RealType = type_for_object(Item),
                                Props = [{error_type, {RealType, EType}} | ?LOG_META(Org)],
-                               lager:error(Props, "FAILED {~p, ~p, ~p}",
+                               lager:error(Props, "FAILED ~p ~p ~p",
                                            [EDetail, Item, erlang:get_stacktrace()]),
                                Acc;
                            throw:#ej_invalid{msg = Msg, type = SpecType, found = Found, key = Key} ->
                                RealType = type_for_object(Item),
                                Props = [{error_type, {RealType, SpecType, Key, Found}}| ?LOG_META(Org)],
-                               lager:error(Props, "FAILED {~p, ~p}",
+                               lager:error(Props, "FAILED ~p ~p",
                                            [Msg, Item]),
                                Acc;
                            Error:Why ->
                                RealType = type_for_object(Item),
-                               lager:error(?LOG_META(Org), "~s FAILED {~p:~p, ~p, ~p}",
+                               lager:error(?LOG_META(Org), "~s FAILED ~p ~p ~p ~p",
                                            [RealType,
                                             Error, Why, Item, erlang:get_stacktrace()]),
                                Acc
@@ -423,8 +423,8 @@ soft_validate(Name, Fun, Org, OldId, Data) ->
         NewData
     catch
         Error:Why ->
-            lager:error(?LOG_META(Org), "~s FAILED TO VALIDATE {~p:~p, ~p, ~p}",
-                        [Name, Error, Why, OldId, erlang:get_stacktrace()]),
+            lager:error(?LOG_META(Org), "~s FAILED_TO_VALIDATE ~p ~p ~p",
+                        [Name, Error, Why, OldId]),
             Data
     end.
 

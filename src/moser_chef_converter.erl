@@ -145,18 +145,18 @@ insert_objects(#org_info{org_name = OrgName,
                            throw:{EType, EDetail} ->
                                RealType = type_for_object(Item),
                                Props = [{error_type, {RealType, EType}} | ?LOG_META(Org)],
-                               lager:error(Props, "FAILED {~p, ~p, ~p}",
+                               lager:error(Props, "FAILED ~p ~p ~p",
                                            [EDetail, Item, erlang:get_stacktrace()]),
                                Acc;
                            throw:#ej_invalid{msg = Msg, type = SpecType, found = Found, key = Key} ->
                                RealType = type_for_object(Item),
                                Props = [{error_type, {RealType, SpecType, Key, Found}}| ?LOG_META(Org)],
-                               lager:error(Props, "FAILED {~p, ~p}",
+                               lager:error(Props, "FAILED ~p ~p",
                                            [Msg, Item]),
                                Acc;
                            Error:Why ->
                                RealType = type_for_object(Item),
-                               lager:error(?LOG_META(Org), "~s FAILED {~p:~p, ~p, ~p}",
+                               lager:error(?LOG_META(Org), "~s FAILED ~p ~p ~p ~p",
                                            [RealType,
                                             Error, Why, Item, erlang:get_stacktrace()]),
                                Acc
@@ -246,7 +246,10 @@ insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc
 insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for
     %% validation and normalization.
-    {ok, RoleData} = chef_role:parse_binary_json(chef_json:encode(Data), create),
+    RoleData = soft_validate(role,
+                             fun(D) -> chef_role:parse_binary_json(D, create) end,
+                             Org, OldId, Data),
+
     OrgId = moser_utils:get_org_id(Org),
     Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
     ObjWithDate = chef_object:set_created(Role, RequesterId),
@@ -288,8 +291,11 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
     NameVer = ej:get({<<"name">>}, FixedData, <<"#Missing!Name-777.777.777">>),
     Version = ej:get({<<"metadata">>, <<"version">>}, FixedData, <<"777.777.777">>),
     Name = re:replace(NameVer, <<"-", Version/binary>>, <<"">>, [{return, binary}]),
-    {ok, CBVData} = chef_cookbook:parse_binary_json(chef_json:encode(FixedData),
-                                                    {Name, Version}),
+
+    CBVData = soft_validate(cookbook,
+                            fun(D) -> chef_cookbook:parse_binary_json(D, {Name, Version}) end,
+                            Org, OldId, Data),
+
     OrgId = moser_utils:get_org_id(Org),
     CookbookVersion = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
     ObjWithDate = chef_object:set_created(CookbookVersion, RequesterId),
@@ -409,6 +415,17 @@ clean_constraint(VC) when is_binary(VC) ->
             error({invalid_constraint, VC});
         {_, _} ->
             VC
+    end.
+
+soft_validate(Name, Fun, Org, OldId, Data) ->
+    try
+        {ok, NewData} = Fun(chef_json:encode(Data)),
+        NewData
+    catch
+        Error:Why ->
+            lager:error(?LOG_META(Org), "~s FAILED_TO_VALIDATE ~p ~p ~p",
+                        [Name, Error, Why, OldId]),
+            Data
     end.
 
 %%

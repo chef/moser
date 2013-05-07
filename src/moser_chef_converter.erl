@@ -144,19 +144,19 @@ insert_objects(#org_info{org_name = OrgName,
                            InsertFun(Org, Item, Acc)
                        catch
                            throw:{EType, EDetail} ->
-                               RealType = type_for_object(Item),
+                               RealType = moser_utils:type_for_object(Item),
                                Props = [{error_type, {RealType, EType}} | ?LOG_META(Org)],
                                lager:error(Props, "FAILED ~p ~p ~p",
                                            [EDetail, Item, erlang:get_stacktrace()]),
                                Acc;
                            throw:#ej_invalid{msg = Msg, type = SpecType, found = Found, key = Key} ->
-                               RealType = type_for_object(Item),
+                               RealType = moser_utils:type_for_object(Item),
                                Props = [{error_type, {RealType, SpecType, Key, Found}}| ?LOG_META(Org)],
                                lager:error(Props, "FAILED ~p ~p",
                                            [Msg, Item]),
                                Acc;
                            Error:Why ->
-                               RealType = type_for_object(Item),
+                               RealType = moser_utils:type_for_object(Item),
                                lager:error(?LOG_META(Org), "~s FAILED ~p ~p ~p ~p",
                                            [RealType,
                                             Error, Why, Item, erlang:get_stacktrace()]),
@@ -193,26 +193,6 @@ id_for_object({{client, _Name}, {Id, _}}) ->
     Id;
 id_for_object({{_Type, Id}, _}) ->
     Id.
-
-type_for_object({{client, _}, {_, _}}) ->
-    client;
-type_for_object({{Type, _}, _}) ->
-    Type;
-type_for_object(_) ->
-    unknown_type.
-
-%% Set the object ID for a chef-object-style record. This is needed because we will not be normalizing
-%% the IDs at this time due to complexity related to search and SOLR indexing.
-set_id(#chef_role{} = Object, Id) ->
-    Object#chef_role{id = Id};
-set_id(#chef_environment{} = Object, Id) ->
-    Object#chef_environment{id = Id};
-set_id(#chef_client{} = Object, Id) ->
-    Object#chef_client{id = Id};
-set_id(#chef_data_bag{} = Object, Id) ->
-    Object#chef_data_bag{id = Id};
-set_id(#chef_data_bag_item{} = Object, Id) ->
-    Object#chef_data_bag_item{id = Id}.
 
 insert_one(Org, {{Type, _IdOrName}, _} = Object, Acc) ->
     Name = name_for_object(Object),
@@ -386,16 +366,19 @@ log_insert(Status, Org, OldId, AuthzId, ObjectRec) ->
                     _    -> <<"FAIL">>
                 end,
     NewId = chef_object:id(ObjectRec),
-    Name = case chef_object:name(ObjectRec) of
-               {Bag, Item} ->
-                   <<Bag/binary, ",", Item/binary>>;
-               N ->
-                   N
-           end,
+    Name = name_from_object(ObjectRec),
     Type = chef_object:type_name(ObjectRec),
     lager:info(?LOG_META(Org), "INSERT LOG ~s: ~s ~s ~s ~s ~s",
                [LogStatus, Type, OldId, NewId, AuthzId, Name]),
     Status.
+
+name_from_object(ObjectRec) ->
+    case chef_object:name(ObjectRec) of
+        {Bag, Item} ->
+            <<Bag/binary, ",", Item/binary>>;
+        N ->
+            N
+    end.
 
 %% Intended for use with environment objects, removes a top-level "attributes" key if the
 %% value is an empty hash.

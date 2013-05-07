@@ -101,25 +101,10 @@ filter_out_precreated_orgs(OL) ->
     [ O || #org_info{is_precreated = false} = O <- OL ].
 
 process_insert_org(OrgInfo) ->
-    Start = os:timestamp(),
-    case moser_chef_processor:process_couch_file(OrgInfo) of
-        {ok, OrgInfoFull} ->
-            R = try
-                    moser_chef_converter:insert(OrgInfoFull)
-                catch
-                    error:E ->
-                        {error, E, erlang:get_stacktrace()};
-                    throw:E ->
-                        {error, E, erlang:get_stacktrace()}
-                after
-                    moser_chef_processor:cleanup_org_info(OrgInfoFull)
-                end,
-            Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
-            lager:info(?LOG_META(OrgInfo), "COMPLETED ~.3f secs", [Time]),
-            R;
-        {error, Msg} ->
-            {error, Msg}
-    end.
+    moser_utils:load_process_org(OrgInfo,
+                     fun moser_chef_processor:process_couch_file/1,
+                     fun moser_chef_processor:cleanup_org_info/1,
+                     "READ").
 
 process_insert_orgs(L) ->
     [ process_insert_org(O) || O <- L].

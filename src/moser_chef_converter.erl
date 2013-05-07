@@ -118,7 +118,8 @@ insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
             OrgId = moser_utils:get_org_id(Org),
             DataBag = chef_object:new_record(chef_data_bag, OrgId, AuthzId, Name),
             ObjWithDate = chef_object:set_created(DataBag, RequesterId),
-            try_insert(Org, ObjWithDate, Id, AuthzId, fun chef_sql:create_data_bag/1),
+            ObjWithOldId = set_id(ObjWithDate, Id),
+            try_insert(Org, ObjWithOldId, Id, AuthzId, fun chef_sql:create_data_bag/1),
             dict:update_counter(databag, 1, Acc);
         not_found ->
             %% ignore object if authz id not found
@@ -200,6 +201,18 @@ type_for_object({{Type, _}, _}) ->
 type_for_object(_) ->
     unknown_type.
 
+%% Set the object ID for a chef-object-style record. This is needed because we will not be normalizing
+%% the IDs at this time due to complexity related to search and SOLR indexing.
+set_id(#chef_role{} = Object, Id) ->
+    Object#chef_role{id = Id};
+set_id(#chef_environment{} = Object, Id) ->
+    Object#chef_environment{id = Id};
+set_id(#chef_client{} = Object, Id) ->
+    Object#chef_client{id = Id};
+set_id(#chef_data_bag{} = Object, Id) ->
+    Object#chef_data_bag{id = Id};
+set_id(#chef_data_bag_item{} = Object, Id) ->
+    Object#chef_data_bag_item{id = Id}.
 
 insert_one(Org, {{Type, _IdOrName}, _} = Object, Acc) ->
     Name = name_for_object(Object),
@@ -231,7 +244,8 @@ insert_one(#org_info{org_name = OrgName} = Org,
     OrgId = moser_utils:get_org_id(Org),
     Client = chef_object:new_record(chef_client, OrgId, AuthzId, ClientData),
     ObjWithDate = chef_object:set_created(Client, RequesterId),
-    try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_client/1),
+    ObjWithOldId = set_id(ObjWithDate, OldId),
+    try_insert(Org, ObjWithOldId, OldId, AuthzId, fun chef_sql:create_client/1),
     dict:update_counter(client, 1, Acc);
 insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc) ->
     BagName = ej:get({<<"data_bag">>}, Data),
@@ -241,6 +255,7 @@ insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc
     DataBagItem = chef_object:new_record(chef_data_bag_item, OrgId, no_authz,
                                          {BagName, ItemData}),
     ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
+    ObjWithOldId = set_id(ObjWithDate, OldId),
     try_insert(Org, ObjWithDate, OldId, <<"unset">>, fun chef_sql:create_data_bag_item/1),
     dict:update_counter(Type, 1, Acc);
 insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
@@ -253,7 +268,8 @@ insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     OrgId = moser_utils:get_org_id(Org),
     Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
     ObjWithDate = chef_object:set_created(Role, RequesterId),
-    try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_role/1),
+    ObjWithOldId = set_id(ObjWithDate, OldId),
+    try_insert(Org, ObjWithOldId, OldId, AuthzId, fun chef_sql:create_role/1),
     dict:update_counter(role, 1, Acc);
 %% Environments
 insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
@@ -264,7 +280,8 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data1)),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
-    try_insert(Org, ObjWithDate, OldId, AuthzId, fun chef_sql:create_environment/1),
+    ObjWithOldId = set_id(ObjWithDate, OldId),
+    try_insert(Org, ObjWithOldId, OldId, AuthzId, fun chef_sql:create_environment/1),
     dict:update_counter(environment, 1, Acc);
 insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% fixup potentially old version constraint strings before inserting into sql

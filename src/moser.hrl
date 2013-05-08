@@ -46,7 +46,8 @@
           authz_to_user,
           orgname_to_guid,
           orgs_by_guid,
-          db
+          db,
+          couch_cn 
         }).
 
 %% we need this as a macro because lager uses a parse transform and can't handle a function

@@ -194,6 +194,19 @@ id_for_object({{client, _Name}, {Id, _}}) ->
 id_for_object({{_Type, Id}, _}) ->
     Id.
 
+%% Set the object ID for a chef-object-style record. This is needed because we will not be normalizing
+%% the IDs at this time due to complexity related to search and SOLR indexing.
+set_id(#chef_role{} = Object, Id) ->
+    Object#chef_role{id = Id};
+set_id(#chef_environment{} = Object, Id) ->
+    Object#chef_environment{id = Id};
+set_id(#chef_client{} = Object, Id) ->
+    Object#chef_client{id = Id};
+set_id(#chef_data_bag{} = Object, Id) ->
+    Object#chef_data_bag{id = Id};
+set_id(#chef_data_bag_item{} = Object, Id) ->
+    Object#chef_data_bag_item{id = Id}.
+
 insert_one(Org, {{Type, _IdOrName}, _} = Object, Acc) ->
     Name = name_for_object(Object),
     Id = id_for_object(Object),

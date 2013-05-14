@@ -30,11 +30,21 @@
          get_orgid_from_dbname/1,
          get_dbname_from_orgid/1,
          list_ej_keys/1,
+         load_process_org/4,
+         type_for_object/1,
          orgname_to_guid/1,
          us_to_secs/1
         ]).
 
 -include("moser.hrl").
+
+
+type_for_object({{client, _}, {_, _}}) ->
+    client;
+type_for_object({{Type, _}, _}) ->
+    Type;
+type_for_object(_) ->
+    unknown_type.
 
 %% TODO: generate org id prefixed ids and wire in solr re-index.  If we modify the id in any
 %% way, we have to re-index in solr. We might as well take advantage and generate ids that
@@ -63,3 +73,26 @@ list_ej_keys({Ej}) ->
 
 us_to_secs(USecs) ->
     USecs / 1.0E6.
+
+load_process_org(#org_info{org_name = OrgName} = OrgInfo,
+                 Action, Cleanup,
+                 Description) ->
+    Start = os:timestamp(),
+    case moser_chef_processor:process_couch_file(OrgInfo) of
+        {ok, OrgInfoFull} ->
+            R = try
+                    Action(OrgInfoFull)
+                catch
+                    error:E ->
+                        {error, E, erlang:get_stacktrace()};
+                    throw:E ->
+                        {error, E, erlang:get_stacktrace()}
+                after
+                    Cleanup(OrgInfoFull)
+                end,
+            Time = moser_utils:us_to_secs(timer:now_diff(os:timestamp(), Start)),
+            lager:info(?LOG_META(OrgInfo), "~s ~s COMPLETED ~.3f secs", [Description, OrgName, Time]),
+            R;
+        {error, Msg} ->
+            {error, Msg}
+    end.

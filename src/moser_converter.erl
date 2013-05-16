@@ -102,7 +102,7 @@ filter_out_precreated_orgs(OL) ->
 
 process_insert_org(OrgInfo) ->
     moser_utils:load_process_org(OrgInfo,
-                     fun moser_chef_processor:process_couch_file/1,
+                     fun moser_chef_converter:insert/1,
                      fun moser_chef_processor:cleanup_org_info/1,
                      "READ").
 

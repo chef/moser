@@ -38,8 +38,7 @@ insert_org([#org_info{org_id = OrgId, org_name = OrgName} | T]) ->
             insert_org(T);
         {error, Error} ->
             lager:error([{org_name, OrgName}], "Failed to create state record for org. Aborting inserts. Error: ~p", [Error]),
-            insert_org(T)
-            %{error, Error}
+            {error, Error}
 
     end.
 

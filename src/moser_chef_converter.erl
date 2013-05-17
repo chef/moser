@@ -57,6 +57,8 @@
                      "data_bag_items",
                      "data_bags"]).
 
+-define(DEFAULT_CHECKSUM_BATCH_SIZE, 1000).
+
 insert(#org_info{} = Org) ->
     try
         {Time0, Totals0} = insert_checksums(Org, dict:new()),
@@ -75,35 +77,47 @@ insert(#org_info{} = Org) ->
 %%
 %% Checksums need to be inserted before other things
 %%
-insert_checksums(#org_info{} = Org, Totals) ->
-    {T, R} =
-        timer:tc(fun() ->
-                         insert_objects(Org, Totals, fun insert_checksums/3, "checksum")
-                 end),
+insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
+    {T, R} = timer:tc(fun() ->
+							  OrgId = moser_utils:get_org_id(Org),
+							  %% Select the Data element out of the ets field
+							  SelectAllChecksumsMatchSpec = [{{{checksum, '_'}, '$1'}, [], ['$1']}],
+							  {Results, Continuation} = ets:select(Chef,SelectAllChecksumsMatchSpec, ?DEFAULT_CHECKSUM_BATCH_SIZE),
+							  do_insert_checksums(Results, Continuation, OrgId, Totals)
+						  end),
     lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
                [moser_utils:us_to_secs(T)]),
-    R.
+		{T,R}.
 
-insert_checksums(Org, {{checksum = Type, _Name}, Data}, Acc) ->
-    OrgId = moser_utils:get_org_id(Org),
-    Checksum = ej:get({"checksum"}, Data),
-    case sqerl:statement(insert_checksum, [OrgId, Checksum], count) of
-        {ok, 1} ->
-            ok;
-        Error -> %% TODO check errors better here
-            Error
-    end,
-    dict:update_counter(Type, 1, Acc);
-insert_checksums(_Org, {{_Type, _Id}, _Data} = _Item, Acc) ->
-%%    RType = list_to_atom("SKIP_CK_" ++ atom_to_list(_Type)),
-%%    dict:update_counter(RType, 1, Acc);
-    Acc;
-insert_checksums(_Org, {orgname,_}, Acc) ->
-    Acc;
-insert_checksums(_Org, Item, Acc) ->
-    lager:warning("unexpected item in insert_checksums: ~p", [Item]),
-    Acc.
+do_insert_checksums(CurrentList, '$end_of_table', OrgId, Totals) ->
+    bulk_insert_checksums(CurrentList, OrgId, Totals, length(CurrentList));
+do_insert_checksums(CurrentList, Continuation, OrgId, Totals) ->
+%% If we are mid continuation, continue till end of table
+    {NextList, NextContinuation} = ets:select(Continuation),
+    NewTotals = bulk_insert_checksums(CurrentList, OrgId, Totals),
+    do_insert_checksums(NextList, NextContinuation, OrgId, NewTotals).
 
+%% Relies on current schema as documented in
+%% chef_db/priv/pgsql_statements.config
+%%
+%% insert_checksum,%<<"INSERT INTO checksums(org_id, checksum)
+%%   VALUES ($1, $2)">>
+%%
+bulk_insert_checksums(CurrentList, OrgId, Totals) ->
+	bulk_insert_checksums(CurrentList, OrgId, Totals, ?DEFAULT_CHECKSUM_BATCH_SIZE).
+
+bulk_insert_checksums(CurrentList, OrgId, Totals, BatchSize) ->
+	Params = [ [OrgId, ej:get({"checksum"}, Data)] || Data <- CurrentList ],
+    case sqerl:adhoc_insert(
+            <<"checksums">>, %%Table name
+            [<<"org_id">>, <<"checksum">>], %%Column Names
+            Params, %% Rows
+            BatchSize) of
+        {ok, InsertedCount} ->
+            dict:update_counter("checksums", InsertedCount, Totals);
+        _ ->
+            Totals
+    end.
 %%
 %% Databags need to be inserted before other things
 %%
@@ -249,7 +263,7 @@ insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc
                                          {BagName, ItemData}),
     ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
     ObjWithOldId = set_id(ObjWithDate, OldId),
-    try_insert(Org, ObjWithDate, OldId, <<"unset">>, fun chef_sql:create_data_bag_item/1),
+    try_insert(Org, ObjWithOldId, OldId, <<"unset">>, fun chef_sql:create_data_bag_item/1),
     dict:update_counter(Type, 1, Acc);
 insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for

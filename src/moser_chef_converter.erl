@@ -115,8 +115,8 @@ bulk_insert_checksums(CurrentList, Totals, BatchSize) ->
             BatchSize) of
         {ok, InsertedCount} ->
             dict:update_counter("checksums", InsertedCount, Totals);
-        _ ->
-            Totals
+        Error ->
+            throw(Error)
     end.
 %%
 %% Databags need to be inserted before other things

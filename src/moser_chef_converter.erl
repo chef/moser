@@ -28,7 +28,7 @@
          cleanup_organization/1,
          cleanup_orgid/1,
          cleanup_all/0]).
-
+-include_lib("stdlib/include/qlc.hrl").
 -include("moser.hrl").
 -include_lib("ej/include/ej.hrl").
 -include_lib("chef_objects/include/chef_types.hrl").
@@ -81,21 +81,24 @@ insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
     {T, R} = timer:tc(fun() ->
 							  OrgId = moser_utils:get_org_id(Org),
 							  %% Select the Data element out of the ets field
-							  SelectAllChecksumsMatchSpec = [{{{checksum, '_'}, '$1'}, [], ['$1']}],
-							  {Results, Continuation} = ets:select(Chef,SelectAllChecksumsMatchSpec, ?DEFAULT_CHECKSUM_BATCH_SIZE),
-							  do_insert_checksums(Results, Continuation, OrgId, Totals)
+							  Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)]),
+							  Cursor = qlc:cursor(Query),
+							  NewTotals = do_insert_checksums(Cursor, Totals),
+							  qlc:delete_cursor(Cursor),
+							  NewTotals
 						  end),
     lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
                [moser_utils:us_to_secs(T)]),
 		{T,R}.
 
-do_insert_checksums(CurrentList, '$end_of_table', OrgId, Totals) ->
-    bulk_insert_checksums(CurrentList, OrgId, Totals, length(CurrentList));
-do_insert_checksums(CurrentList, Continuation, OrgId, Totals) ->
-%% If we are mid continuation, continue till end of table
-    {NextList, NextContinuation} = ets:select(Continuation),
-    NewTotals = bulk_insert_checksums(CurrentList, OrgId, Totals),
-    do_insert_checksums(NextList, NextContinuation, OrgId, NewTotals).
+do_insert_checksums(Cursor, Totals) ->
+    case qlc:next_answers(Cursor, ?DEFAULT_CHECKSUM_BATCH_SIZE) of
+        [] ->
+            Totals;
+        Answers ->
+            NewTotals = bulk_insert_checksums(Answers, Totals),
+            do_insert_checksums(Cursor, NewTotals)
+    end.
 
 %% Relies on current schema as documented in
 %% chef_db/priv/pgsql_statements.config
@@ -103,20 +106,16 @@ do_insert_checksums(CurrentList, Continuation, OrgId, Totals) ->
 %% insert_checksum,%<<"INSERT INTO checksums(org_id, checksum)
 %%   VALUES ($1, $2)">>
 %%
-bulk_insert_checksums(CurrentList, OrgId, Totals) ->
-	bulk_insert_checksums(CurrentList, OrgId, Totals, ?DEFAULT_CHECKSUM_BATCH_SIZE).
-
-bulk_insert_checksums(CurrentList, OrgId, Totals, BatchSize) ->
-	Params = [ [OrgId, ej:get({"checksum"}, Data)] || Data <- CurrentList ],
+bulk_insert_checksums(CurrentList, Totals) ->
     case sqerl:adhoc_insert(
             <<"checksums">>, %%Table name
             [<<"org_id">>, <<"checksum">>], %%Column Names
-            Params, %% Rows
-            BatchSize) of
+            CurrentList, %% Rows
+            ?DEFAULT_CHECKSUM_BATCH_SIZE) of
         {ok, InsertedCount} ->
             dict:update_counter("checksums", InsertedCount, Totals);
-        _ ->
-            Totals
+        Error ->
+            throw(Error)
     end.
 %%
 %% Databags need to be inserted before other things

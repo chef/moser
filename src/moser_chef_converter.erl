@@ -81,23 +81,23 @@ insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
     {T, R} = timer:tc(fun() ->
 							  OrgId = moser_utils:get_org_id(Org),
 							  %% Select the Data element out of the ets field
-							  Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)], [unique]),
+							  Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)]),
 							  Cursor = qlc:cursor(Query),
-							  Results = qlc:next_answers(Cursor, ?DEFAULT_CHECKSUM_BATCH_SIZE),
-							  do_insert_checksums(Results, Cursor, Totals),
-							  qlc:delete_cursor(Cursor)
+							  do_insert_checksums(Cursor, Totals)
 						  end),
     lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
                [moser_utils:us_to_secs(T)]),
 		{T,R}.
 
-do_insert_checksums([], _, Totals) ->
-%% If empty list means end of cursor
-    Totals;
-do_insert_checksums(CurrentList, Cursor, Totals) ->
-%% If we are mid cursor traversal, continue till empty results
-    NewTotals = bulk_insert_checksums(CurrentList, Totals),
-    do_insert_checksums(qlc:next_answers(Cursor, ?DEFAULT_CHECKSUM_BATCH_SIZE), Cursor, NewTotals).
+do_insert_checksums(Cursor, Totals) ->
+    case qlc:next_answers(Cursor, ?DEFAULT_CHECKSUM_BATCH_SIZE) of
+        [] ->
+            qlc:delete_cursor(Cursor),
+            Totals;
+        Answers ->
+            NewTotals = bulk_insert_checksums(Answers, Totals),
+            do_insert_checksums(Cursor, NewTotals)
+    end.
 
 %% Relies on current schema as documented in
 %% chef_db/priv/pgsql_statements.config

@@ -147,7 +147,9 @@ process_item_by_type({_, node}, _Org, _Key, _Body) ->
     %% Node docs are to be ignored
     ok;
 process_item_by_type({chef, ChefType = checksum}, Org, _Key, Body) ->
-    %% All Chef::* types go into the chef_ets table.
+    %% All Chef::Checksum types go into the chef_ets table
+    %% keyed by the checksum value.  This prevents duplicate
+    %% checksums failing to insert.
     ets:insert(Org#org_info.chef_ets, {{ChefType, ej:get({"checksum"}, Body)}, Body});
 process_item_by_type({chef, ChefType}, Org, Key, Body) ->
     %% All Chef::* types go into the chef_ets table.

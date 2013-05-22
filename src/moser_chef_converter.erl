@@ -450,8 +450,8 @@ soft_validate(Name, Fun, Org, OldId, Data) ->
         NewData
     catch
         Error:Why ->
-            lager:error(?LOG_META(Org), "~s FAILED_TO_VALIDATE ~p ~p ~p",
-                        [Name, Error, Why, OldId]),
+            lager:warning(?LOG_META(Org), "~s FAILED_TO_VALIDATE ~p ~p ~p",
+                       [Name, Error, Why, OldId]),
             Data
     end.
 

@@ -83,7 +83,9 @@ insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
 							  %% Select the Data element out of the ets field
 							  Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)]),
 							  Cursor = qlc:cursor(Query),
-							  do_insert_checksums(Cursor, Totals)
+							  NewTotals = do_insert_checksums(Cursor, Totals),
+							  qlc:delete_cursor(Cursor),
+							  NewTotals
 						  end),
     lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
                [moser_utils:us_to_secs(T)]),
@@ -92,7 +94,6 @@ insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
 do_insert_checksums(Cursor, Totals) ->
     case qlc:next_answers(Cursor, ?DEFAULT_CHECKSUM_BATCH_SIZE) of
         [] ->
-            qlc:delete_cursor(Cursor),
             Totals;
         Answers ->
             NewTotals = bulk_insert_checksums(Answers, Totals),

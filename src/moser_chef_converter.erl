@@ -81,10 +81,11 @@ insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
     {T, R} = timer:tc(fun() ->
 							  OrgId = moser_utils:get_org_id(Org),
 							  %% Select the Data element out of the ets field
-                              Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)], [unique]),
-                              Cursor = qlc:cursor(Query),
+							  Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)], [unique]),
+							  Cursor = qlc:cursor(Query),
 							  Results = qlc:next_answers(Cursor, ?DEFAULT_CHECKSUM_BATCH_SIZE),
-							  do_insert_checksums(Results, Cursor, Totals)
+							  do_insert_checksums(Results, Cursor, Totals),
+							  qlc:delete_cursor(Cursor)
 						  end),
     lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
                [moser_utils:us_to_secs(T)]),
@@ -105,14 +106,11 @@ do_insert_checksums(CurrentList, Cursor, Totals) ->
 %%   VALUES ($1, $2)">>
 %%
 bulk_insert_checksums(CurrentList, Totals) ->
-	bulk_insert_checksums(CurrentList, Totals, ?DEFAULT_CHECKSUM_BATCH_SIZE).
-
-bulk_insert_checksums(CurrentList, Totals, BatchSize) ->
     case sqerl:adhoc_insert(
             <<"checksums">>, %%Table name
             [<<"org_id">>, <<"checksum">>], %%Column Names
             CurrentList, %% Rows
-            BatchSize) of
+            ?DEFAULT_CHECKSUM_BATCH_SIZE) of
         {ok, InsertedCount} ->
             dict:update_counter("checksums", InsertedCount, Totals);
         Error ->

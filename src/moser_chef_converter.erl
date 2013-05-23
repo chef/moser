@@ -317,7 +317,7 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
 
     CBVData = soft_validate(cookbook,
                             fun(D) -> chef_cookbook:parse_binary_json(D, {Name, Version}) end,
-                            Org, OldId, Data),
+                            Org, OldId, FixedData),
 
     OrgId = moser_utils:get_org_id(Org),
     CookbookVersion = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
@@ -329,7 +329,7 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
             %% (perhaps as a result of using --purge). So we log and skip these.
             Props = [{error_type, cookbook_version_missing_checksum}| ?LOG_META(Org)],
             lager:warning(Props, "cookbook_version ~s (~s) SKIPPED missing checksums",
-                          [ej:get({"name"}, Data), OldId]),
+                          [ej:get({"name"}, FixedData), OldId]),
             log_insert(skip, Org, OldId, AuthzId, ObjWithDate),
             Acc;
         {ok, 1} ->
@@ -338,7 +338,7 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
         Error ->
             log_insert(fail, Org, OldId, AuthzId, ObjWithDate),
             lager:error(?LOG_META(Org), "cookbook_version ~s (~s) SKIPPED ~p",
-                        [ej:get({"name"}, Data), OldId, Error]),
+                        [ej:get({"name"}, FixedData), OldId, Error]),
             Acc
     end;
 %% Old style cookbooks

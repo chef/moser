@@ -9,6 +9,9 @@
 
 -export([capture_full_org_state_list/0,
          capture_full_org_state_list/1,
+         add_missing_orgs/0,
+         add_missing_orgs/1,
+         insert_one_org/1,
          next_ready_org/0,          % Grab next org name waiting to be processed
          migration_started/1,       % Update org state to indicate migration started
          migration_failed/2,        % Update org state to indicate migration failed
@@ -30,17 +33,36 @@ capture_full_org_state_list() ->
 capture_full_org_state_list(#account_info{} = AcctInfo) ->
     insert_org(moser_acct_processor:all_orgs(AcctInfo)).
 
+
+add_missing_orgs() ->
+    add_missing_orgs(moser_acct_processor:open_account()).
+
+add_missing_orgs(#account_info{} = AcctInfo) ->
+    AllOrgs = moser_acct_processor:all_orgs(AcctInfo),
+    %% TODO: add check to insure that this org wasn't created directly in sql
+    %% Probably will need to check in with redis to see if it was migrated.
+    [ insert_one_org(O) || O <- AllOrgs].
+
 insert_org([]) ->
     ok;
-insert_org([#org_info{org_id = OrgId, org_name = OrgName} | T]) ->
+insert_org([Org | T]) ->
+    case insert_one_org(Org) of
+        ok ->
+            insert_org(T);
+        {error, Error} ->
+            {error, Error}
+    end.
+
+insert_one_org(#org_info{org_id = OrgId, org_name = OrgName}) ->
     case sqerl:execute(insert_org_sql(), [OrgName, OrgId]) of
         {ok, 1} ->
-            insert_org(T);
+            ok;
         {error, Error} ->
             lager:error([{org_name, OrgName}], "Failed to create state record for org. Aborting inserts. Error: ~p", [Error]),
             {error, Error}
-
     end.
+
+
 
 %% @doc true if org state allows it to be migrated
 is_ready(OrgName) ->

@@ -267,9 +267,10 @@ insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc
 insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for
     %% validation and normalization.
+    Name = ej:get({"name"}, Data),
     RoleData = soft_validate(role,
                              fun(D) -> chef_role:parse_binary_json(D, create) end,
-                             Org, OldId, Data),
+                             Org, OldId, Data, Name),
 
     OrgId = moser_utils:get_org_id(Org),
     Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
@@ -317,7 +318,7 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
 
     CBVData = soft_validate(cookbook,
                             fun(D) -> chef_cookbook:parse_binary_json(D, {Name, Version}) end,
-                            Org, OldId, FixedData),
+                            Org, OldId, FixedData, NameVer),
 
     OrgId = moser_utils:get_org_id(Org),
     CookbookVersion = chef_object:new_record(chef_cookbook_version, OrgId, AuthzId, CBVData),
@@ -443,14 +444,14 @@ clean_constraint(VC) when is_binary(VC) ->
             VC
     end.
 
-soft_validate(Name, Fun, Org, OldId, Data) ->
+soft_validate(Type, Fun, Org, OldId, Data, Name) ->
     try
         {ok, NewData} = Fun(chef_json:encode(Data)),
         NewData
     catch
         Error:Why ->
-            lager:warning(?LOG_META(Org), "~s FAILED_TO_VALIDATE ~p ~p ~p",
-                       [Name, Error, Why, OldId]),
+            lager:warning(?LOG_META(Org), "~s FAILED_TO_VALIDATE ~p ~p ~p ~p",
+                       [Type, Error, Why, OldId, Name]),
             Data
     end.
 

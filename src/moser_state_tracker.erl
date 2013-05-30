@@ -16,8 +16,9 @@
          migration_started/1,       % Update org state to indicate migration started
          migration_failed/2,        % Update org state to indicate migration failed
          migration_successful/1,    % Update org state to indicate migration successful
-         hold_migration/1,          % Prevent named org from being migrated until marked ready
-         ready_migration/1,         % Mark named org as ready to migrate,
+         hold_migration/1,          % reset org state from ready to holding
+         ready_migration/1,         % reset org state from holding to ready
+         reset_migration/1,         % reset org state from failed to holding.
          is_ready/1,                % true if org state allows migration,
          org_state/1                % migration state of the named org
         ]).
@@ -102,6 +103,15 @@ migration_failed(OrgName, FailureLocation) ->
 migration_successful(OrgName) ->
     update_if_org_in_state(OrgName, finish_migration_sql(), "started", [OrgName, "completed", ""]).
 
+reset_migration(OrgName) ->
+    update_if_org_in_state(OrgName, reset_org_sql(), "failed", [OrgName, "holding"]).
+
+hold_migration(OrgName) ->
+    update_if_org_in_state(OrgName, reset_org_sql(), "ready", [OrgName, "holding"]).
+
+ready_migration(OrgName) ->
+    update_if_org_in_state(OrgName, reset_org_sql(), "holding", [OrgName, "ready"]).
+
 update_if_org_in_state(OrgName, SQL, State, Args) ->
     case is_org_in_state(OrgName, State) of
         true ->
@@ -109,12 +119,6 @@ update_if_org_in_state(OrgName, SQL, State, Args) ->
         false ->
             {error, not_in_expected_state, State}
     end.
-
-hold_migration(OrgName) ->
-    exec_update(reset_org_sql(), [OrgName, "holding"]).
-
-ready_migration(OrgName) ->
-    exec_update(reset_org_sql(), [OrgName, "ready"]).
 
 exec_update(Query, Params) ->
     case sqerl:execute(Query, Params) of
@@ -169,4 +173,3 @@ next_org_sql() ->
 
 is_org_in_state_sql() ->
     <<"SELECT COUNT(*) count FROM org_migration_state WHERE state = $2 AND org_name = $1">>.
-

@@ -20,7 +20,8 @@
          ready_migration/1,         % reset org state from holding to ready
          reset_migration/1,         % reset org state from failed to holding.
          is_ready/1,                % true if org state allows migration,
-         org_state/1                % migration state of the named org
+         org_state/1,               % migration state of the named org
+         unmigrated_orgs/0
         ]).
 
 -include("moser.hrl").
@@ -142,6 +143,19 @@ org_state(OrgName) ->
             Value
     end.
 
+unmigrated_orgs() ->
+    case sqerl:execute(all_unmigrated_orgname_sql()) of
+        {error, Error} ->
+            lager:error("Failed to fetch unmigrated orgname ~p", [Error]),
+            {error, Error};
+        {ok, []} ->
+            no_unmigrated_orgs;
+        {ok, Rows } when is_list(Rows) ->
+            XF = sqerl_transformers:rows_as_scalars(org_name),
+            {ok, Value} = XF(Rows),
+            Value
+    end.
+
 %%
 %% SQL Statements
 %%
@@ -164,6 +178,9 @@ reset_org_sql() ->
        SET state = $2, fail_location = NULL,
            migration_start = NULL, migration_end = NULL
        WHERE org_name = $1">>.
+
+all_unmigrated_orgname_sql() ->
+    <<"SELECT org_name FROM org_migration_state WHERE state = 'holding' OR state = 'ready'">>.
 
 org_state_sql() ->
     <<"SELECT state FROM org_migration_state WHERE org_name = $1">>.

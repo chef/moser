@@ -45,18 +45,12 @@
 %%% API
 %%%===================================================================
 
-dets_open_file(Name) ->
-    Dir = envy:get(moser, moser_dets_dir,
-                   "/srv/piab/mounts/moser",
-                   string),
-    dets:open_file(Name, [{file, filename:join([Dir, atom_to_list(Name)])}]).
-
 open_account() ->
-    {ok, U2A} = dets_open_file(user_to_authz),
-    {ok, A2U} = dets_open_file(authz_to_user),
-    {ok, O2G} = dets_open_file(orgname_to_guid),
-    {ok, Orgs} = dets_open_file(orgs_by_guid),
-    {ok, Db}  = dets_open_file(account_db),
+    {ok, U2A} = moser_utils:dets_open_file(user_to_authz),
+    {ok, A2U} = moser_utils:dets_open_file(authz_to_user),
+    {ok, O2G} = moser_utils:dets_open_file(orgname_to_guid),
+    {ok, Orgs} = moser_utils:dets_open_file(orgs_by_guid),
+    {ok, Db}  = moser_utils:dets_open_file(account_db),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,

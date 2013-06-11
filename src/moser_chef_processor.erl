@@ -72,16 +72,6 @@ cleanup_org_info(#org_info{chef_ets = Chef, auth_ets = Auth}) ->
     ets:delete(Chef),
     ets:delete(Auth).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @spec
-%% @end
-%%--------------------------------------------------------------------
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
-
 %% @doc Return the type of a given document from couchdb. We determine the type taking the
 %% first type value found among a list of type keys: json_class, couchrest-type, and
 %% type. Documents should, in theory, have either json_class xor couchrest-type. The "type"
@@ -94,6 +84,17 @@ extract_type(_Key, Body) ->
     TypeKeyPrefList = [<<"json_class">>, <<"couchrest-type">>, <<"type">>],
     RawType = extract_first_type(TypeKeyPrefList, Body),
     normalize_type_name(RawType).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @spec
+%% @end
+%%--------------------------------------------------------------------
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
 
 extract_first_type([Key | Rest], Body) ->
     case ej:get({Key}, Body) of

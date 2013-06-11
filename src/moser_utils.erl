@@ -57,7 +57,7 @@ get_org_id(#org_info{org_id = OrgId}) ->
 
 orgname_to_guid(OrgName) ->
     BinaryOrgName = iolist_to_binary(OrgName),
-    [{BinaryOrgName, BinaryGuid}] = dets:lookup(orgname_to_guid, BinaryOrgName),
+    [{BinaryOrgName, BinaryGuid, _}] = dets:lookup(orgname_to_guid, BinaryOrgName),
     binary_to_list(BinaryGuid).
 
 get_orgid_from_dbname(DbName) ->

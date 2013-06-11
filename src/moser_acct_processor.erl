@@ -81,8 +81,8 @@ process_account_file() ->
     Account = open_account(),
     DbName = filename:join([moser_converter:get_couch_path(), "opscode_account.couch"]),
 
-    IterFn = fun(Key, _RevId, Body, AccIn) ->
-                     process_account_item(Account, Key, Body),
+    IterFn = fun(Key, RevId, Body, AccIn) ->
+                     process_account_item(Account, Key, RevId, Body),
                      AccIn
              end,
     decouch_reader:open_process_all(DbName, IterFn),
@@ -97,56 +97,56 @@ cleanup_account_info(#account_info{user_to_authz = U2A,
     dets:delete(O2G),
     dets:delete(Db).
 
-process_account_item(Account, Key, Body) ->
+process_account_item(Account, Key, RevId, Body) ->
     Type = moser_chef_processor:extract_type(Key, Body),
     case Type of
         undefined ->
             %% if it isn't a document type we recognize, we don't care and carry on.
             ignored;
         _ ->
-            process_item_by_type(Type, Account, Key, Body)
+            process_item_by_type(Type, Account, Key, RevId, Body)
     end,
     ok.
 
 process_item_by_type({auth, group},
-                     #account_info{db=Db}, Key, Body) ->
-    dets:insert(Db, {{{auth, group}, Key}, Body}),
+                     #account_info{db=Db}, Key, RevId, Body) ->
+    dets:insert(Db, {{{auth, group}, Key}, Body, RevId}),
     ok;
 process_item_by_type(auth_join,
                      #account_info{user_to_authz=User2Auth,
                                    authz_to_user=Auth2User},
-                     _Key, Body) ->
+                     Key, RevId, Body) ->
     UserId = ej:get({<<"user_object_id">>}, Body),
     AuthId = ej:get({<<"auth_object_id">>}, Body),
-    dets:insert(User2Auth, {UserId, AuthId}),
-    dets:insert(Auth2User, {AuthId, UserId}),
+    dets:insert(User2Auth, {UserId, AuthId, RevId, Key}),
+    dets:insert(Auth2User, {AuthId, UserId, RevId, Key}),
     ok;
 process_item_by_type(auth_org,
                      #account_info{orgname_to_guid=OrgName2Guid,
                                    orgs_by_guid=Orgs},
-                     _Key, Body) ->
+                     Key, RevId, Body) ->
     OrgName = ej:get({<<"name">>}, Body),
     Guid = ej:get({<<"guid">>}, Body),
-    dets:insert(OrgName2Guid, {OrgName, Guid}),
-    dets:insert(Orgs, {Guid, Body}),
+    dets:insert(OrgName2Guid, {OrgName, Guid, RevId, Key}),
+    dets:insert(Orgs, {Guid, Body, RevId, Key}),
     ok;
 process_item_by_type(auth_user,
-                     #account_info{db=Db}, Key, Body) ->
-    dets:insert(Db, {{auth_user, Key}, Body}),
+                     #account_info{db=Db}, Key, RevId, Body) ->
+    dets:insert(Db, {{auth_user, Key}, Body, RevId}),
     ok;
 process_item_by_type(association_request,
-                     #account_info{db=Db}, Key, Body) ->
-    dets:insert(Db, {{association_request, Key}, Body}),
+                     #account_info{db=Db}, Key, RevId, Body) ->
+    dets:insert(Db, {{association_request, Key}, Body, RevId}),
     ok;
 process_item_by_type(org_user,
-                     #account_info{db=Db}, Key, Body) ->
-    dets:insert(Db, {{org_user, Key}, Body}),
+                     #account_info{db=Db}, Key, RevId, Body) ->
+    dets:insert(Db, {{org_user, Key}, Body, RevId}),
     ok;
 process_item_by_type(design_doc,
-                     #account_info{db=Db}, Key, Body) ->
-    dets:insert(Db, {{org_user, Key}, Body}),
+                     #account_info{db=Db}, Key, RevId, Body) ->
+    dets:insert(Db, {{org_user, Key}, Body, RevId}),
     ok;
-process_item_by_type(_Type, _Acct, _Key, _Body) ->
+process_item_by_type(_Type, _Acct, _Key, _RevId, _Body) ->
     %% happily ignore unknown types
     ok.
 
@@ -154,7 +154,7 @@ user_to_auth(_, bad_id, _LogContext) ->
     <<"bad_authz_id">>;
 user_to_auth(#account_info{user_to_authz = U2A, couch_cn = Cn}, Id, LogContext) ->
     case dets:lookup(U2A, Id) of
-        [{Id,V}] -> {ok, V};
+        [{Id,V, _, _}] -> {ok, V};
         [] -> user_to_auth_live(Cn, Id, LogContext)
     end.
 
@@ -181,11 +181,11 @@ all_orgs(#account_info{} = AcctInfo) ->
 all_orgs(#account_info{orgs_by_guid = Orgs} = AcctInfo, WantPrecreated) ->
     Fun = case WantPrecreated of
               true ->
-                  fun({Id, OrgData}, Acc) ->
+                  fun({Id, OrgData, _, _}, Acc) ->
                           Rec = org_ejson_to_rec(Id, OrgData, AcctInfo),
                           [Rec | Acc] end;
               false ->
-                  fun({Id, OrgData}, Acc) ->
+                  fun({Id, OrgData, _, _}, Acc) ->
                           case is_precreated_org(OrgData) of
                               true ->
                                   Acc;
@@ -206,7 +206,7 @@ org_ejson_to_rec(Id, OrgData, AcctInfo) ->
 get_org_guid_by_name(Name,
                      #account_info{orgname_to_guid=OrgName2Guid}) ->
     case dets:lookup(OrgName2Guid, Name) of
-        [{Name, GUID}] ->
+        [{Name, GUID, _, _}] ->
             GUID;
         [] ->
             not_found
@@ -215,7 +215,7 @@ get_org_guid_by_name(Name,
 get_org_by_guid(GUID,
                 #account_info{orgs_by_guid=Orgs}) ->
     case dets:lookup(Orgs, GUID) of
-        [{GUID, OrgData}] ->
+        [{GUID, OrgData, _, _}] ->
             OrgData;
         [] ->
             not_found

@@ -13,15 +13,21 @@
          add_missing_orgs/1,
          insert_one_org/1,
          next_ready_org/0,          % Grab next org name waiting to be processed
+         next_purge_ready_org/0,    % Grab next org name waiting to be purged
          migration_started/1,       % Update org state to indicate migration started
          migration_failed/2,        % Update org state to indicate migration failed
          migration_successful/1,    % Update org state to indicate migration successful
          hold_migration/1,          % reset org state from ready to holding
          ready_migration/1,         % reset org state from holding to ready
          reset_migration/1,         % reset org state from failed to holding.
+         reset_purged_orgs/0,
+         reset_purge_started_orgs/0,
          is_ready/1,                % true if org state allows migration,
          org_state/1,               % migration state of the named org
-         unmigrated_orgs/0
+         unmigrated_orgs/0,
+         purge_started/1,
+         purge_successful/1,
+         migrated_orgs/0
         ]).
 
 -include("moser.hrl").
@@ -84,16 +90,11 @@ is_org_in_state(OrgName, State) ->
 
 %% @doc get the next org name to be processed.
 next_ready_org() ->
-    case sqerl:execute(next_org_sql(), ["ready"]) of
-        {error, Error} ->
-            lager:error("Failed to fetch next pending org: ~p", [Error]),
-            {error, Error};
-        {ok, []} ->
-            no_more_orgs;
-        {ok, Rows } when is_list(Rows) ->
-            XF = sqerl_transformers:first_as_scalar(org_name),
-            XF(Rows)
-    end.
+    fetch_orgs(next_org_sql(), ["ready"], {ok, no_more_orgs}, "pending").
+
+%% @doc get the next org name to be processed.
+next_purge_ready_org() ->
+    fetch_orgs(next_org_sql(), ["completed"], {ok, no_more_orgs}, "completed").
 
 migration_started(OrgName) ->
     update_if_org_in_state(OrgName, start_migration_sql(), "ready", [OrgName]).
@@ -104,8 +105,20 @@ migration_failed(OrgName, FailureLocation) ->
 migration_successful(OrgName) ->
     update_if_org_in_state(OrgName, finish_migration_sql(), "started", [OrgName, "completed", ""]).
 
+purge_started(OrgName) ->
+    update_if_org_in_state(OrgName, finish_migration_sql(), "completed", [OrgName, "purge_started", ""]).
+
+purge_successful(OrgName) ->
+    update_if_org_in_state(OrgName, finish_purge_sql(), "purge_started", [OrgName, "purge_successful", ""]).
+
 reset_migration(OrgName) ->
     update_if_org_in_state(OrgName, reset_org_sql(), "failed", [OrgName, "holding"]).
+
+reset_purged_orgs() ->
+    [update_if_org_in_state(OrgName, reset_org_sql(), "purge_successful", [OrgName, "holding"]) || OrgName <- purged_orgs()].
+
+reset_purge_started_orgs() ->
+    [update_if_org_in_state(OrgName, reset_org_sql(), "purge_started", [OrgName, "holding"]) || OrgName <- purge_started_orgs()].
 
 hold_migration(OrgName) ->
     update_if_org_in_state(OrgName, reset_org_sql(), "ready", [OrgName, "holding"]).
@@ -144,17 +157,16 @@ org_state(OrgName) ->
     end.
 
 unmigrated_orgs() ->
-    case sqerl:execute(all_unmigrated_orgname_sql()) of
-        {error, Error} ->
-            lager:error("Failed to fetch unmigrated orgname ~p", [Error]),
-            {error, Error};
-        {ok, []} ->
-            no_unmigrated_orgs;
-        {ok, Rows } when is_list(Rows) ->
-            XF = sqerl_transformers:rows_as_scalars(org_name),
-            {ok, Value} = XF(Rows),
-            Value
-    end.
+    fetch_orgs(all_unmigrated_orgname_sql(), ["holding", "ready"], no_unmigrated_orgs, "unmigrated").
+
+migrated_orgs() ->
+    fetch_orgs(all_orgs_in_state(), ["completed"], no_migrated_orgs, "migrated").
+
+purged_orgs() ->
+    fetch_orgs(all_orgs_in_state(), ["purge_successful"], [], "purged").
+
+purge_started_orgs() ->
+    fetch_orgs(all_orgs_in_state(), ["purge_started"], [], "purge started").
 
 %%
 %% SQL Statements
@@ -173,6 +185,11 @@ finish_migration_sql() ->
        SET state = $2, fail_location = $3, migration_end = CURRENT_TIMESTAMP
        WHERE org_name = $1">>.
 
+finish_purge_sql() ->
+    <<"UPDATE org_migration_state
+       SET state = $2, fail_location = $3, migration_end = CURRENT_TIMESTAMP
+       WHERE org_name = $1">>.
+
 reset_org_sql() ->
     <<"UPDATE org_migration_state
        SET state = $2, fail_location = NULL,
@@ -180,7 +197,10 @@ reset_org_sql() ->
        WHERE org_name = $1">>.
 
 all_unmigrated_orgname_sql() ->
-    <<"SELECT org_name FROM org_migration_state WHERE state = 'holding' OR state = 'ready'">>.
+    <<"SELECT org_name FROM org_migration_state WHERE state = $1 OR state = $2">>.
+
+all_orgs_in_state() ->
+    <<"SELECT org_name FROM org_migration_state WHERE state = $1">>.
 
 org_state_sql() ->
     <<"SELECT state FROM org_migration_state WHERE org_name = $1">>.
@@ -190,3 +210,16 @@ next_org_sql() ->
 
 is_org_in_state_sql() ->
     <<"SELECT COUNT(*) count FROM org_migration_state WHERE state = $2 AND org_name = $1">>.
+
+fetch_orgs(SQL, Params, EmptyReturn, ErrorDescription) ->
+    case sqerl:execute(SQL, Params) of
+        {error, Error} ->
+            lager:error("Failed to fetch ~p orgname ~p", [ErrorDescription, Error]),
+            {error, Error};
+        {ok, []} ->
+            EmptyReturn;
+        {ok, Rows } when is_list(Rows) ->
+            XF = sqerl_transformers:rows_as_scalars(org_name),
+            {ok, Value} = XF(Rows),
+            Value
+    end.

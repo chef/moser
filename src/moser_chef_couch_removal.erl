@@ -36,16 +36,22 @@ process_couch_item(Org, Key, RevId, Body) ->
   InsertionTarget = filter_type(Type),
   insert(InsertionTarget, Type, Key, RevId, Body, Org).
 
+filter_type({auth_simple, container}) ->
+  no_op;
+filter_type(auth_org) ->
+  no_op;
+filter_type(auth_user) ->
+  no_op;
+filter_type({auth, group}) ->
+  no_op;
 filter_type({auth_simple, _}) ->
   auth_ets;
 filter_type(auth_join) ->
   auth_ets;
-filter_type(auth_org) ->
-  auth_ets;
-filter_type(auth_user) ->
-  auth_ets;
 filter_type(undefined) ->
   no_op;
+filter_type({auth, client}) ->
+  auth_ets;
 filter_type({_, node}) ->
   no_op;
 filter_type(design_doc) ->
@@ -59,19 +65,23 @@ insert(no_op, _Type, _Key, _RevId, _Body, _Org) ->
 insert(chef_ets, Type, Key, RevId, Body, Org) ->
   ets:insert(Org#org_info.chef_ets, {{Type, Key, Body}, RevId, Org});
 insert(auth_ets, Type, UserIdOrAuthId, RevId, Body, Org) ->
+  ets:insert(Org#org_info.chef_ets, {{Type, UserIdOrAuthId, Body}, RevId, Org}),
   ets:insert(Org#org_info.auth_ets, {{Type, UserIdOrAuthId, Body}, RevId, Org}).
+
 delete_org(OrgName) when is_list(OrgName) ->
   delete_org(list_to_binary(OrgName));
 delete_org(OrgName) when is_binary(OrgName) ->
   {ok, Org} = load_org_to_ets(OrgName),
-  delete_org(Org);
+  delete_org(Org),
+	ets:delete(Org#org_info.chef_ets),
+	ets:delete(Org#org_info.auth_ets),
+	ok;
 delete_org(Org) ->
   Db = make_db_descriptor(<<"chef_", (Org#org_info.org_id)/binary>>),
   AuthDb = make_db_descriptor(<<"opscode_account">>),
   ok = delete_org_docs(Db, ets:table(Org#org_info.chef_ets)),
   ok = delete_auth_docs(AuthDb, ets:table(Org#org_info.auth_ets)),
-  couchbeam:compact(Db),
-  ok.
+  couchbeam:compact(Db).
 
 delete_auth_docs(Db, Table) ->
   Query = qlc:q([

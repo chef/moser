@@ -208,6 +208,8 @@ get_org_guid_by_name(Name,
     case dets:lookup(OrgName2Guid, Name) of
         [{Name, GUID, _, _}] ->
             GUID;
+        [{Name, GUID}] ->
+            GUID;
         [] ->
             not_found
     end.
@@ -216,6 +218,8 @@ get_org_by_guid(GUID,
                 #account_info{orgs_by_guid=Orgs}) ->
     case dets:lookup(Orgs, GUID) of
         [{GUID, OrgData, _, _}] ->
+            OrgData;
+        [{GUID, OrgData}] ->
             OrgData;
         [] ->
             not_found

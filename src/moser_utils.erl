@@ -33,7 +33,8 @@
          load_process_org/4,
          type_for_object/1,
          orgname_to_guid/1,
-         us_to_secs/1
+         us_to_secs/1,
+         dets_open_file/1
         ]).
 
 -include("moser.hrl").
@@ -96,3 +97,11 @@ load_process_org(#org_info{org_name = OrgName} = OrgInfo,
         {error, Msg} ->
             {error, Msg}
     end.
+
+
+dets_open_file(Name) ->
+    Dir = envy:get(moser, moser_dets_dir,
+                   "/srv/piab/mounts/moser",
+                   string),
+    dets:open_file(Name, [{file, filename:join([Dir, atom_to_list(Name)])}]).
+

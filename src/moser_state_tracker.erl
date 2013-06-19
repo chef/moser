@@ -7,11 +7,18 @@
 
 -module(moser_state_tracker).
 
--export([capture_full_org_state_list/0,
+-export([init_cache/0,
+         capture_full_org_state_list/0,
          capture_full_org_state_list/1,
          add_missing_orgs/0,
          add_missing_orgs/1,
          insert_one_org/1,
+         build_validation_table/0,
+         validation_results/1,
+         validation_started/1,
+         validation_completed/2,
+         validation_failed/2,
+         next_validation_ready_org/0,
          next_ready_org/0,          % Grab next org name waiting to be processed
          next_purge_ready_org/0,    % Grab next org name waiting to be purged
          migration_started/1,       % Update org state to indicate migration started
@@ -24,6 +31,8 @@
          reset_purge_started_orgs/0,
          is_ready/1,                % true if org state allows migration,
          org_state/1,               % migration state of the named org
+         org_id_from_name/1,
+         all_migrated_orgs/0,
          unmigrated_orgs/0,
          purge_started/1,
          purge_successful/1,
@@ -34,6 +43,9 @@
 
 %%% API
 
+init_cache() ->
+    ets:new(org_name_id_cache, [public, named_table]).
+
 %% @doc capture current list of orgs into the sql table
 capture_full_org_state_list() ->
     capture_full_org_state_list(moser_acct_processor:open_account()).
@@ -41,6 +53,63 @@ capture_full_org_state_list() ->
 capture_full_org_state_list(#account_info{} = AcctInfo) ->
     insert_org(moser_acct_processor:all_orgs(AcctInfo)).
 
+build_validation_table() ->
+    {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
+    dets:delete_all_objects(OrgVal),
+    AllOrgs = all_migrated_orgs(),
+    [dets:insert(OrgVal, {OrgName, pending, []}) || OrgName <- AllOrgs],
+    dets:close(OrgVal).
+
+next_validation_ready_org() ->
+    {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
+    % find the first record with result 'pending' and update it to
+    % 'validating'
+    MatchSpec = { '$1', pending, '_' },
+    case dets:match(OrgVal, MatchSpec, 1) of
+        '$end_of_table' ->
+            {ok, no_more_orgs};
+        { [[]], _ } ->
+            i_should_not_happen;
+        { [H|_], _ } ->
+            [H1|_] = H,
+            H1
+    end.
+
+validation_started(OrgName) ->
+    {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
+    case validation_results(OrgName) of
+        org_not_available ->
+            {error, org_not_available};
+        _ ->
+            dets:insert(OrgVal, {OrgName, validating, []})
+    end.
+
+validation_failed(OrgName, ErrorResults) ->
+    {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
+    case validation_results(OrgName) of
+        org_not_available ->
+            {error, org_not_available};
+        _ ->
+            dets:insert(OrgVal, {OrgName, fatal_error, ErrorResults})
+    end.
+
+validation_completed(OrgName, Results) ->
+    {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
+    case validation_results(OrgName) of
+        org_not_available ->
+            {error, org_not_available};
+        _ ->
+            dets:insert(OrgVal, {OrgName, complete, Results})
+    end.
+
+validation_results(OrgName) ->
+    {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
+    case dets:lookup(OrgVal, OrgName) of
+        [] ->
+            org_not_available;
+        [{OrgName, State, Results}] ->
+            {State, Results}
+    end.
 
 add_missing_orgs() ->
     add_missing_orgs(moser_acct_processor:open_account()).
@@ -106,10 +175,10 @@ migration_successful(OrgName) ->
     update_if_org_in_state(OrgName, finish_migration_sql(), "started", [OrgName, "completed", ""]).
 
 purge_started(OrgName) ->
-    update_if_org_in_state(OrgName, finish_migration_sql(), "completed", [OrgName, "purge_started", ""]).
+    update_if_org_in_state(OrgName, update_state_sql(), "completed", [OrgName, "purge_started"]).
 
 purge_successful(OrgName) ->
-    update_if_org_in_state(OrgName, finish_purge_sql(), "purge_started", [OrgName, "purge_successful", ""]).
+    update_if_org_in_state(OrgName, update_state_sql(), "purge_started", [OrgName, "purge_successful"]).
 
 reset_migration(OrgName) ->
     update_if_org_in_state(OrgName, reset_org_sql(), "failed", [OrgName, "holding"]).
@@ -146,7 +215,7 @@ exec_update(Query, Params) ->
 org_state(OrgName) ->
     case sqerl:execute(org_state_sql(), [OrgName]) of
         {error, Error} ->
-            lager:error("Failed to fetch next pending org: ~p", [Error]),
+            lager:error("Failed to fetch org state org: ~p", [Error]),
             {error, Error};
         {ok, []} ->
             no_such_org;
@@ -156,17 +225,73 @@ org_state(OrgName) ->
             Value
     end.
 
+org_id_from_name(OrgName) ->
+    case ets:lookup(org_name_id_cache, OrgName) of
+        [] ->
+            OrgId = fetch_org_id_from_name(OrgName),
+            ets:insert(org_name_id_cache, {OrgName, OrgId}),
+            OrgId;
+        [{OrgName, OrgId}] ->
+            OrgId
+    end.
+
+fetch_org_id_from_name(OrgName) ->
+    case sqerl:execute(org_id_from_name_sql(), [OrgName]) of
+        {error, Error} ->
+            {error, Error};
+        {ok, []} ->
+            not_found;
+        {ok, Rows } when is_list(Rows) ->
+            XF = sqerl_transformers:first_as_scalar(org_id),
+            {ok, Value} = XF(Rows),
+            Value
+    end.
+
+%% SQL
+org_id_from_name_sql() ->
+    <<"SELECT org_id FROM org_migration_state WHERE org_name = $1">>.
+
+all_migrated_orgs() ->
+    org_names_in_states(["completed", "purge_successful", "purge_started"]).
+
 unmigrated_orgs() ->
-    fetch_orgs(all_unmigrated_orgname_sql(), ["holding", "ready"], no_unmigrated_orgs, "unmigrated").
+    org_names_in_states(["holding", "ready"]).
 
 migrated_orgs() ->
-    fetch_orgs(all_orgs_in_state(), ["completed"], no_migrated_orgs, "migrated").
+    org_names_in_states(["completed"]).
 
 purged_orgs() ->
-    fetch_orgs(all_orgs_in_state(), ["purge_successful"], [], "purged").
+    org_names_in_states(["purge_successful"]).
 
 purge_started_orgs() ->
-    fetch_orgs(all_orgs_in_state(), ["purge_started"], [], "purge started").
+    org_names_in_states(["purge_started"]).
+
+org_names_in_states(States)->
+    States2 = [list_to_binary(X) || X <- States, is_list(X)],
+    case sqerl:adhoc_select([<<"org_name">>], <<"org_migration_state">>,
+                            {<<"state">>, in, States2}) of
+        {error, Error} ->
+            lager:error("Failed to fetch org names for orgs in state(s): ~p error: ~p", [States, Error]);
+        {ok, []} ->
+            no_orgs_in_state;
+        {ok, Rows} when is_list(Rows) ->
+            XF = sqerl_transformers:rows_as_scalars(org_name),
+            {ok, Value} = XF(Rows),
+            Value
+    end.
+
+fetch_orgs(SQL, Params, EmptyReturn, ErrorDescription) ->
+    case sqerl:execute(SQL, Params) of
+        {error, Error} ->
+            lager:error("Failed to fetch ~p orgname ~p", [ErrorDescription, Error]),
+            {error, Error};
+        {ok, []} ->
+            EmptyReturn;
+        {ok, Rows } when is_list(Rows) ->
+            XF = sqerl_transformers:rows_as_scalars(org_name),
+            {ok, Value} = XF(Rows),
+            Value
+    end.
 
 %%
 %% SQL Statements
@@ -185,22 +310,14 @@ finish_migration_sql() ->
        SET state = $2, fail_location = $3, migration_end = CURRENT_TIMESTAMP
        WHERE org_name = $1">>.
 
-finish_purge_sql() ->
-    <<"UPDATE org_migration_state
-       SET state = $2, fail_location = $3, migration_end = CURRENT_TIMESTAMP
-       WHERE org_name = $1">>.
+update_state_sql() ->
+    <<"UPDATE org_migration_state SET state = $2 WHERE org_name = $1">>.
 
 reset_org_sql() ->
     <<"UPDATE org_migration_state
        SET state = $2, fail_location = NULL,
            migration_start = NULL, migration_end = NULL
        WHERE org_name = $1">>.
-
-all_unmigrated_orgname_sql() ->
-    <<"SELECT org_name FROM org_migration_state WHERE state = $1 OR state = $2">>.
-
-all_orgs_in_state() ->
-    <<"SELECT org_name FROM org_migration_state WHERE state = $1">>.
 
 org_state_sql() ->
     <<"SELECT state FROM org_migration_state WHERE org_name = $1">>.
@@ -211,15 +328,3 @@ next_org_sql() ->
 is_org_in_state_sql() ->
     <<"SELECT COUNT(*) count FROM org_migration_state WHERE state = $2 AND org_name = $1">>.
 
-fetch_orgs(SQL, Params, EmptyReturn, ErrorDescription) ->
-    case sqerl:execute(SQL, Params) of
-        {error, Error} ->
-            lager:error("Failed to fetch ~p orgname ~p", [ErrorDescription, Error]),
-            {error, Error};
-        {ok, []} ->
-            EmptyReturn;
-        {ok, Rows } when is_list(Rows) ->
-            XF = sqerl_transformers:rows_as_scalars(org_name),
-            {ok, Value} = XF(Rows),
-            Value
-    end.

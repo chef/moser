@@ -152,15 +152,18 @@ insert_objects(#org_info{org_name = OrgName,
                          org_id = OrgId,
                          chef_ets = Chef} = Org,
                Totals, InsertFun, Type) ->
+    DbErrorIsFatal = envy:get(moser, db_error_is_fatal, true, bool),
+    OtherErrorIsFatal = envy:get(moser, other_error_is_fatal, true, bool),
     Inserter = fun(Item, Acc) ->
                        try
                            InsertFun(Org, Item, Acc)
                        catch
+                           throw:{chef_sql = EType, EDetail} when DbErrorIsFatal ->
+                               %% We want to do a hard failure for database errors
+                               log_throw(Org, Item, EType, EDetail),
+                               throw({EType, EDetail});
                            throw:{EType, EDetail} ->
-                               RealType = moser_utils:type_for_object(Item),
-                               Props = [{error_type, {RealType, EType}} | ?LOG_META(Org)],
-                               lager:error(Props, "FAILED ~p ~p ~p",
-                                           [EDetail, Item, erlang:get_stacktrace()]),
+                               log_throw(Org, Item, EType, EDetail),
                                Acc;
                            throw:#ej_invalid{msg = Msg, type = SpecType, found = Found, key = Key} ->
                                RealType = moser_utils:type_for_object(Item),
@@ -168,11 +171,11 @@ insert_objects(#org_info{org_name = OrgName,
                                lager:error(Props, "FAILED ~p ~p",
                                            [Msg, Item]),
                                Acc;
+                           Error:Why when OtherErrorIsFatal ->
+                               log_error(Org, Item, Error, Why),
+                               error(Why);
                            Error:Why ->
-                               RealType = moser_utils:type_for_object(Item),
-                               lager:error(?LOG_META(Org), "~s FAILED ~p ~p ~p ~p",
-                                           [RealType,
-                                            Error, Why, Item, erlang:get_stacktrace()]),
+                               log_error(Org, Item, Error, Why),
                                Acc
                        end
                end,
@@ -182,6 +185,18 @@ insert_objects(#org_info{org_name = OrgName,
     lager:info(?LOG_META(Org), "~p (~p) ~s insertions took ~.3f seconds~n",
                [OrgName, OrgId, Type, moser_utils:us_to_secs(Time)]),
     {Time, Totals1}.
+
+log_throw(Org, Item, EType, EDetail) ->
+    RealType = moser_utils:type_for_object(Item),
+    Props = [{error_type, {RealType, EType}} | ?LOG_META(Org)],
+    lager:error(Props, "FAILED ~p ~p ~p",
+                [EDetail, Item, erlang:get_stacktrace()]).
+
+log_error(Org, Item, Error, Why) ->
+    RealType = moser_utils:type_for_object(Item),
+    lager:error(?LOG_META(Org), "~s FAILED ~p ~p ~p ~p",
+                [RealType,
+                 Error, Why, Item, erlang:get_stacktrace()]).
 
 insert_objects(#org_info{} = Org, Totals) ->
     insert_objects(Org, Totals, fun insert_one/3, "object").
@@ -340,7 +355,7 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
             log_insert(fail, Org, OldId, AuthzId, ObjWithDate),
             lager:error(?LOG_META(Org), "cookbook_version ~s (~s) SKIPPED ~p",
                         [ej:get({"name"}, FixedData), OldId, Error]),
-            Acc
+            throw({chef_sql, Error})
     end;
 %% Old style cookbooks
 %% These use the "Cookbook" chef_type. As best we can tell, this isn't used anywhere in the OHC code.

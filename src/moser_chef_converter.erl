@@ -79,14 +79,14 @@ insert(#org_info{} = Org) ->
 %%
 insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
     {T, R} = timer:tc(fun() ->
-							  OrgId = moser_utils:get_org_id(Org),
-							  %% Select the Data element out of the ets field
-							  Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)]),
-							  Cursor = qlc:cursor(Query),
-							  NewTotals = do_insert_checksums(Cursor, Totals),
-							  qlc:delete_cursor(Cursor),
-							  NewTotals
-						  end),
+                              OrgId = moser_utils:get_org_id(Org),
+                              %% Select the Data element out of the ets field
+                              Query = qlc:q([[OrgId,Checksum] || {{checksum, Checksum},_} <- ets:table(Chef)]),
+                              Cursor = qlc:cursor(Query),
+                              NewTotals = do_insert_checksums(Cursor, Totals),
+                              qlc:delete_cursor(Cursor),
+                              NewTotals
+                      end),
     lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
                [moser_utils:us_to_secs(T)]),
 		{T,R}.

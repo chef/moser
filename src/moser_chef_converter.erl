@@ -529,6 +529,8 @@ sqerl_delete_helper(Table, Where) ->
             {error, Table, Error}
     end.
 
+delete_table_for_org(Table, not_found) ->
+    {error, Table, invalid_org_id};
 delete_table_for_org("cookbook_versions", OrgId) ->
     Stmt = iolist_to_binary(["delete from cookbook_versions using cookbooks ",
                              "where cookbook_id = cookbooks.id and cookbooks.org_id = '",

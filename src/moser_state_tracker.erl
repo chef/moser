@@ -50,8 +50,22 @@ init_cache() ->
 capture_full_org_state_list() ->
     capture_full_org_state_list(moser_acct_processor:open_account()).
 
-capture_full_org_state_list(#account_info{} = AcctInfo) ->
-    insert_org(moser_acct_processor:all_orgs(AcctInfo)).
+capture_full_org_state_list(#account_info{} = _AcctInfo) ->
+    {error, {org_capture_disabled, "Use moser_state_tracker:insert_one_org/1 for specific orgs instead"}}.
+
+add_missing_orgs() ->
+    add_missing_orgs(moser_acct_processor:open_account()).
+
+add_missing_orgs(#account_info{} = _AcctInfo) ->
+    {error, {org_capture_disabled, "Use moser_state_tracker:insert_one_org/1 for specific orgs instead"}}.
+
+insert_one_org(#org_info{org_id = OrgId, org_name = OrgName}) ->
+    case sqerl:execute(insert_org_sql(), [OrgName, OrgId]) of
+        {ok, 1} ->
+            ok;
+        {error, Error} ->
+            {error, Error}
+    end.
 
 build_validation_table() ->
     {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
@@ -110,36 +124,6 @@ validation_results(OrgName) ->
         [{OrgName, State, Results}] ->
             {State, Results}
     end.
-
-add_missing_orgs() ->
-    add_missing_orgs(moser_acct_processor:open_account()).
-
-add_missing_orgs(#account_info{} = AcctInfo) ->
-    AllOrgs = moser_acct_processor:all_orgs(AcctInfo),
-    %% TODO: add check to insure that this org wasn't created directly in sql
-    %% Probably will need to check in with redis to see if it was migrated.
-    [ insert_one_org(O) || O <- AllOrgs].
-
-insert_org([]) ->
-    ok;
-insert_org([Org | T]) ->
-    case insert_one_org(Org) of
-        ok ->
-            insert_org(T);
-        {error, Error} ->
-            lager:error([{org_name, Org#org_info.org_name}], "Failed to create state record for org. Aborting inserts. Error: ~p", [Error]),
-            {error, Error}
-    end.
-
-insert_one_org(#org_info{org_id = OrgId, org_name = OrgName}) ->
-    case sqerl:execute(insert_org_sql(), [OrgName, OrgId]) of
-        {ok, 1} ->
-            ok;
-        {error, Error} ->
-            {error, Error}
-    end.
-
-
 
 %% @doc true if org state allows it to be migrated
 is_ready(OrgName) ->

@@ -313,6 +313,10 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     try_insert(Org, ObjWithOldId, OldId, AuthzId, fun chef_sql:create_environment/1),
     dict:update_counter(environment, 1, Acc);
 insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, Acc) ->
+
+    NameVer = ej:get({<<"name">>}, Data, <<"#Missing!Name-777.777.777">>),
+    Version = ej:get({<<"version">>}, Data, <<"777.777.777">>),
+
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,
                       <<"platforms">>,
@@ -326,16 +330,18 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
                     Fixed = clean_old_array_dependencies(Constraints),
                     ej:set({Key}, Accum, Fixed)
             end,
+
     Metadata = ej:get({<<"metadata">>}, Data),
     FixedMeta = lists:foldl(Fixer, Metadata, ConstraintKeys),
-    FixedData = ej:set({<<"metadata">>}, Data, FixedMeta),
+    %% Historically we haven't enforced that metadata.version matches version,
+    %% But now our schema really requires it. 
+    FixedMeta2 = ej:set({<<"version">>}, FixedMeta, Version),
+    FixedData = ej:set({<<"metadata">>}, Data, FixedMeta2),
     %% So cbv data is varied. Our validation function is built around the REST API where the
     %% URL provides name and version. So here we extract two required attributes and do some
     %% munging to get something consistent. If one of the required things is missing, we
     %% should end up with an invalid name, but fail in the validation code to keep messages
     %% consistent.
-    NameVer = ej:get({<<"name">>}, FixedData, <<"#Missing!Name-777.777.777">>),
-    Version = ej:get({<<"metadata">>, <<"version">>}, FixedData, <<"777.777.777">>),
     Name = re:replace(NameVer, <<"-", Version/binary>>, <<"">>, [{return, binary}]),
 
     CBVData = soft_validate(cookbook,

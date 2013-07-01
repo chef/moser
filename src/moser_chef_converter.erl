@@ -316,6 +316,13 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
 
     NameVer = ej:get({<<"name">>}, Data, <<"#Missing!Name-777.777.777">>),
     Version = ej:get({<<"version">>}, Data, <<"777.777.777">>),
+    MVersion = ej:get({<<"metadata">>, <<"version">>}, Data, <<"777.777.777">>),
+
+    case MVersion of
+        Version -> ok;
+        _ ->
+            lager:error(?LOG_META(Org), "cookbook_version ~s (~s) mismatch ~s ~s", [NameVer, OldId, Version, MVersion])
+    end,
 
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,

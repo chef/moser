@@ -89,7 +89,7 @@ insert_checksums(#org_info{chef_ets = Chef} = Org, Totals) ->
                       end),
     lager:info(?LOG_META(Org), "checksum_time ~.3f seconds",
                [moser_utils:us_to_secs(T)]),
-		{T,R}.
+                {T,R}.
 
 do_insert_checksums(Cursor, Totals) ->
     case qlc:next_answers(Cursor, ?DEFAULT_CHECKSUM_BATCH_SIZE) of
@@ -316,6 +316,13 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
 
     NameVer = ej:get({<<"name">>}, Data, <<"#Missing!Name-777.777.777">>),
     Version = ej:get({<<"version">>}, Data, <<"777.777.777">>),
+    MVersion = ej:get({<<"metadata">>, <<"version">>}, Data, <<"777.777.777">>),
+
+    case MVersion of
+        Version -> ok;
+        _ ->
+            lager:error(?LOG_META(Org), "cookbook_version ~s (~s) mismatch ~s ~s", [NameVer, OldId, Version, MVersion])
+    end,
 
     %% fixup potentially old version constraint strings before inserting into sql
     ConstraintKeys = [<<"dependencies">>,
@@ -334,7 +341,7 @@ insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, 
     Metadata = ej:get({<<"metadata">>}, Data),
     FixedMeta = lists:foldl(Fixer, Metadata, ConstraintKeys),
     %% Historically we haven't enforced that metadata.version matches version,
-    %% But now our schema really requires it. 
+    %% But now our schema really requires it.
     FixedMeta2 = ej:set({<<"version">>}, FixedMeta, Version),
     FixedData = ej:set({<<"metadata">>}, Data, FixedMeta2),
     %% So cbv data is varied. Our validation function is built around the REST API where the

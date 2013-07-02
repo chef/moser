@@ -77,6 +77,8 @@ validate_cookbook_version(Org, {{cookbook_version, OldId}, Data}) ->
 
     case MVersion of
         Version -> ok;
+         <<"777.777.777">> ->
+            lager:error(?LOG_META(Org), "cookbook_version ~s (~s) no metadata_version ~s", [NameVer, OldId, Version]);
         _ ->
             lager:error(?LOG_META(Org), "cookbook_version ~s (~s) mismatch ~s ~s", [NameVer, OldId, Version, MVersion])
     end.

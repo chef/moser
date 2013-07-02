@@ -25,16 +25,18 @@
 
 %% API
 -export([
+         dbfile_exists/1,
+         dets_open_file/1,
          fix_chef_id/1,
+         get_dbname_from_orgid/1,
          get_org_id/1,
          get_orgid_from_dbname/1,
-         get_dbname_from_orgid/1,
          list_ej_keys/1,
          load_process_org/4,
-         type_for_object/1,
          orgname_to_guid/1,
-         us_to_secs/1,
-         dets_open_file/1
+         for_all_orgs/1,
+         type_for_object/1,
+         us_to_secs/1
         ]).
 
 -include("moser.hrl").
@@ -75,6 +77,17 @@ list_ej_keys({Ej}) ->
 us_to_secs(USecs) ->
     USecs / 1.0E6.
 
+for_all_orgs(Fun) ->
+    AcctInfo = moser_acct_processor:open_account(),
+    %% this returns all assigned orgs in the acct db.
+    AllOrgs = moser_acct_processor:all_orgs(AcctInfo),
+    %% filter out, those where we can't find the couchdb file (useful for test scenario
+    %% especially where we have a complete acct db, but partial collection of couchdb
+    %% files).
+    {T, R} = timer:tc(fun() -> [ Fun(O) || O <- AllOrgs, dbfile_exists(O) ] end ),
+    {{T/1.0e6/60.0, min}, R}.
+
+
 load_process_org(#org_info{org_name = OrgName} = OrgInfo,
                  Action, Cleanup,
                  Description) ->
@@ -105,3 +118,5 @@ dets_open_file(Name) ->
                    string),
     dets:open_file(Name, [{file, filename:join([Dir, atom_to_list(Name)])}]).
 
+dbfile_exists(#org_info{db_name = DbFile}) ->
+    filelib:is_file(DbFile).

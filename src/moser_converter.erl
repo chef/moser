@@ -63,7 +63,7 @@ full_sweep() ->
     %% filter out, those where we can't find the couchdb file (useful for test scenario
     %% especially where we have a complete acct db, but partial collection of couchdb
     %% files).
-    HaveFileOrgs = [ O || O <- AllOrgs, dbfile_exists(O) ],
+    HaveFileOrgs = [ O || O <- AllOrgs, moser_utils:dbfile_exists(O) ],
     {T, R} = timer:tc(fun() -> process_insert_orgs(HaveFileOrgs) end),
     {{T/1.0e6/60.0, min}, R}.
 
@@ -85,9 +85,6 @@ convert_org(OrgName, #account_info{} = AcctInfo) ->
             Orgs = filter_out_precreated_orgs([OrgInfo]),
             process_insert_orgs(Orgs)
     end.
-
-dbfile_exists(#org_info{db_name = DbFile}) ->
-    filelib:is_file(DbFile).
 
 expand_org_info(Org) ->
     moser_acct_processor:expand_org_info(Org).

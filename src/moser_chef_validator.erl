@@ -68,7 +68,16 @@ validate_version(Version, Org, NameVer,  OldId) ->
             lager:error(?LOG_META(Org), "cookbook_version ~s (~s) ill_formed ~s ~s", [NameVer, OldId, Version])
     end.
 
+insert_warn_dup(#org_info{chef_ets = Chef} = Org, Key, Id) ->
+    case ets:lookup(Chef, Key) of
+        [{Key, OldId}] ->
+            lager:error(?LOG_META(Org), "cookbook_version ~p (~s) conflict_with ~s", [Key, Id, OldId]);
+        _ ->
+            ets:insert(Chef, {Key, Id})
+    end.
+
 validate_cookbook_version(Org, {{cookbook_version, OldId}, Data}) ->
+    Name = ej:get({<<"cookbook_name">>}, Data, undefined),
     NameVer = ej:get({<<"name">>}, Data, <<"#Missing!Name-777.777.777">>),
     Version = ej:get({<<"version">>}, Data, <<"777.777.777">>),
     MVersion = ej:get({<<"metadata">>, <<"version">>}, Data, <<"777.777.777">>),
@@ -81,5 +90,6 @@ validate_cookbook_version(Org, {{cookbook_version, OldId}, Data}) ->
             lager:error(?LOG_META(Org), "cookbook_version ~s (~s) no metadata_version ~s", [NameVer, OldId, Version]);
         _ ->
             lager:error(?LOG_META(Org), "cookbook_version ~s (~s) mismatch ~s ~s", [NameVer, OldId, Version, MVersion])
-    end.
-
+    end,
+    insert_warn_dup(Org, { cb_version, Name, Version }, OldId),
+    insert_warn_dup(Org, { cb_meta_version, Name, MVersion }, OldId).

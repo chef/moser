@@ -46,8 +46,13 @@ process_validate_org(OrgInfo) ->
 %%
 %% Validate version information in couch data.
 %%
+mk_sort_key(Doc, Id) ->
+    Name = ej:get({<<"cookbook_name">>}, Doc, undefined),
+    { {cookbook_version_info, Name}, {Id, Doc} }.
+
 validate_all_cookbook_versions(#org_info{chef_ets = Chef} = Org) ->
-    Query = qlc:q([ Item || {{cookbook_version, _}, _} = Item <- ets:table(Chef)]),
+    Query = qlc:sort(qlc:q([ mk_sort_key(Doc, Id)
+                             || {{cookbook_version, Id}, Doc} <- ets:table(Chef)])),
     [ validate_cookbook_version(Org, V) || V <- qlc:eval(Query) ],
     ok.
 
@@ -76,7 +81,7 @@ insert_warn_dup(#org_info{chef_ets = Chef} = Org, Key, Id) ->
             ets:insert(Chef, {Key, Id})
     end.
 
-validate_cookbook_version(Org, {{cookbook_version, OldId}, Data}) ->
+validate_cookbook_version(Org, {{cookbook_version_info, Name}, {OldId, Data}}) ->
     Name = ej:get({<<"cookbook_name">>}, Data, undefined),
     NameVer = ej:get({<<"name">>}, Data, <<"#Missing!Name-777.777.777">>),
     Version = ej:get({<<"version">>}, Data, <<"777.777.777">>),

@@ -28,7 +28,9 @@
          ready_migration/1,         % reset org state from holding to ready
          reset_migration/1,         % reset org state from failed to holding.
          reset_purged_orgs/0,
+         reset_purged_org_to_completed/1,
          reset_purge_started_orgs/0,
+         reset_purge_started_org_to_completed/1,
          is_ready/1,                % true if org state allows migration,
          org_state/1,               % migration state of the named org
          org_id_from_name/1,
@@ -170,8 +172,14 @@ reset_migration(OrgName) ->
 reset_purged_orgs() ->
     [update_if_org_in_state(OrgName, reset_org_sql(), "purge_successful", [OrgName, "holding"]) || OrgName <- purged_orgs()].
 
+reset_purged_org_to_completed(OrgName) ->
+    update_if_org_in_state(OrgName, reset_org_sql(), "purge_successful", [OrgName, "completed"]).
+
 reset_purge_started_orgs() ->
     [update_if_org_in_state(OrgName, reset_org_sql(), "purge_started", [OrgName, "holding"]) || OrgName <- purge_started_orgs()].
+
+reset_purge_started_org_to_completed(OrgName) ->
+    update_if_org_in_state(OrgName, reset_org_sql(), "purge_started", [OrgName, "completed"]).
 
 hold_migration(OrgName) ->
     update_if_org_in_state(OrgName, reset_org_sql(), "ready", [OrgName, "holding"]).

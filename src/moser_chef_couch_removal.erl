@@ -88,9 +88,14 @@ delete_org(OrgName) when is_binary(OrgName) ->
 delete_org(Org) ->
     {ChefBackupID, AuthBackupID} = moser_purge_backup:open_backups(Org#org_info.org_id),
     ChefDb = make_chef_db_descriptor(Org),
-    AuthDb = make_auth_db_descriptor(),
     ok = delete_from_cursor(ChefDb, make_chef_query(Org), ChefBackupID),
-    ok = delete_from_cursor(AuthDb, make_auth_query(Org), AuthBackupID),
+    ok = case envy:get(moser, purge_auth, false, boolean) of
+      true ->
+        AuthDb = make_auth_db_descriptor(),
+        delete_from_cursor(AuthDb, make_auth_query(Org), AuthBackupID);
+      false ->
+        ok
+    end,
     {ok, ok} = moser_purge_backup:close_backups(ChefBackupID, AuthBackupID),
     couchbeam:compact(ChefDb).
 

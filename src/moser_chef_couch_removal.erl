@@ -112,7 +112,6 @@ do_delete_docs(Db, Cursor, BackupIoDevice) ->
             {DeletionFun, Docs} = transform_to_purge(DocsRaw),
             BackupReadyDocs = transform_to_backup(DocsRaw),
             DeletionFun(Db, Docs),
-            {ok, _, _, _} = couchbeam:db_request(post, Url, ["200"], [], Headers, EncodedDocs),
             ok = moser_purge_backup:backup(BackupIoDevice, BackupReadyDocs),
             timer:sleep(envy:get(moser, purge_throttle, 10, integer)),
             do_delete_docs(Db, Cursor, BackupIoDevice)
@@ -127,8 +126,8 @@ make_db_descriptor(DbName) ->
 %%Auth form of data
 transform_to_purge([{_, _, _, _} | _] = Terms) ->
   {fun(Db, Docs) -> 
-        couchbeam:delete_docs(Db, Docs, [{"empty_on_delete", true}])
-        end, [{DocId, [Rev]} || {_,_,Rev, DocId} <- Terms]};
+                couchbeam:delete_docs(Db, Docs, [{"empty_on_delete", true}])
+        end, [{[{<<"_id">>, DocId}, {<<"_rev">>, Rev}]} || {_,_,Rev, DocId} <- Terms]};
 
 %%Chef form of data
 transform_to_purge([{{_,_,_}, _,_} | _Rest] = Terms) ->

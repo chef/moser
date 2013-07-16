@@ -109,12 +109,9 @@ do_delete_docs(Db, Cursor, BackupIoDevice) ->
         [] ->
             ok;
         DocsRaw ->
-            Docs = transform_to_purge(DocsRaw),
+            {DeletionFun, Docs} = transform_to_purge(DocsRaw),
             BackupReadyDocs = transform_to_backup(DocsRaw),
-            Url = make_url(Db, "_purge"),
-            Headers = [{"Content-Type", "application/json"}],
-            EncodedDocs = jiffy:encode({Docs}),
-            {ok, _, _, _} = couchbeam:db_request(post, Url, ["200"], [], Headers, EncodedDocs),
+            DeletionFun(Db, Docs),
             ok = moser_purge_backup:backup(BackupIoDevice, BackupReadyDocs),
             timer:sleep(envy:get(moser, purge_throttle, 10, integer)),
             do_delete_docs(Db, Cursor, BackupIoDevice)
@@ -126,12 +123,20 @@ make_db_descriptor(DbName) ->
     CouchPort = envy:get(chef_db, couchdb_port, integer),
     {db, {server, CouchHost, CouchPort, [],[]}, DbName, []}.
 
-
+%%Auth form of data
 transform_to_purge([{_, _, _, _} | _] = Terms) ->
-    [{DocId, [Rev]} || {_,_,Rev, DocId} <- Terms];
+  {fun(Db, Docs) -> 
+                couchbeam:delete_docs(Db, Docs, [{"empty_on_delete", true}])
+        end, [{[{<<"_id">>, DocId}, {<<"_rev">>, Rev}]} || {_,_,Rev, DocId} <- Terms]};
 
+%%Chef form of data
 transform_to_purge([{{_,_,_}, _,_} | _Rest] = Terms) ->
-    [{DocId,[Rev]} || {{_,DocId,_},Rev,_} <- Terms].
+  {fun(Db, Docs) ->
+            Url = make_url(Db, "_purge"),
+            Headers = [{"Content-Type", "application/json"}],
+            EncodedDocs = jiffy:encode({Docs}),
+            {ok, _, _, _} = couchbeam:db_request(post, Url, ["200"], [], Headers, EncodedDocs)
+    end, [{DocId,[Rev]} || {{_,DocId,_},Rev,_} <- Terms]}.
 
 transform_to_backup([{_, _, _, _} | _] = Terms) ->
     [{[{<<"_id">>, DocId}, ?USER_TYPE(U2AId), ?AUTH_TYPE(A2UId), ?COUCH_REST_TYPE ]} || {U2AId, A2UId, _Rev, DocId } <- Terms];

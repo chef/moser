@@ -278,7 +278,9 @@ insert_one(#org_info{org_name = OrgName} = Org,
 insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc) ->
     BagName = ej:get({<<"data_bag">>}, Data),
     %% returns an unwrapped DBI
-    {ok, ItemData} = chef_data_bag_item:parse_binary_json(chef_json:encode(Data), create),
+    ItemData = soft_validate(data_bag_item,
+                             fun(D) -> chef_data_bag_item:parse_binary_json(D, create) end,
+                             Org, OldId, Data, BagName),
     OrgId = moser_utils:get_org_id(Org),
     DataBagItem = chef_object:new_record(chef_data_bag_item, OrgId, no_authz,
                                          {BagName, ItemData}),

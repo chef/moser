@@ -306,7 +306,10 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% first version of environments had a top-level attributes key which is no longer
     %% allowed. If the key is present with an empty value, just remove it.
     Data1 = remove_empty_top_level_attributes(Data),
-    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data1)),
+    Name = ej:get({"name"}, Data1),
+    EnvData = soft_validate(environment,
+                            fun(D) -> chef_environment:parse_binary_json(D) end,
+                            Org, OldId, Data1, Name),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
     ObjWithOldId = set_id(ObjWithDate, OldId),

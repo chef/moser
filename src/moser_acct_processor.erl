@@ -46,11 +46,14 @@
 %%%===================================================================
 
 open_account() ->
-    {ok, U2A} = moser_utils:dets_open_file(user_to_authz),
-    {ok, A2U} = moser_utils:dets_open_file(authz_to_user),
-    {ok, O2G} = moser_utils:dets_open_file(orgname_to_guid),
-    {ok, Orgs} = moser_utils:dets_open_file(orgs_by_guid),
-    {ok, Db}  = moser_utils:dets_open_file(account_db),
+    open_account([{access, read}]).
+
+open_account(Args) ->
+    {ok, U2A} = moser_utils:dets_open_file(user_to_authz, Args),
+    {ok, A2U} = moser_utils:dets_open_file(authz_to_user, Args),
+    {ok, O2G} = moser_utils:dets_open_file(orgname_to_guid, Args),
+    {ok, Orgs} = moser_utils:dets_open_file(orgs_by_guid, Args),
+    {ok, Db}  = moser_utils:dets_open_file(account_db, Args),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,
@@ -71,8 +74,10 @@ close_account(#account_info{user_to_authz = U2A,
     dets:close(Orgs),
     dets:close(Db).
 
+%% This is now intended to be called only from within mover_manager.
+%% To create the account dets file, please call mover_manager:create_account_dets().
 process_account_file() ->
-    Account = open_account(),
+    Account = open_account([{access, read_write}]),
     DbName = filename:join([moser_converter:get_couch_path(), "opscode_account.couch"]),
 
     IterFn = fun(Key, RevId, Body, AccIn) ->
@@ -80,7 +85,7 @@ process_account_file() ->
                      AccIn
              end,
     decouch_reader:open_process_all(DbName, IterFn),
-    Account.
+    close_account(Account).
 
 cleanup_account_info(#account_info{user_to_authz = U2A,
                                    authz_to_user = A2U,

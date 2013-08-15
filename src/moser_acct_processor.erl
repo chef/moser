@@ -26,6 +26,7 @@
 %% API
 -export([all_orgs/1,
          open_account/0,
+         open_account_ro/0,
          close_account/1,
          process_account_file/0,
          cleanup_account_info/1,
@@ -46,11 +47,15 @@
 %%%===================================================================
 
 open_account() ->
-    {ok, U2A} = moser_utils:dets_open_file(user_to_authz),
-    {ok, A2U} = moser_utils:dets_open_file(authz_to_user),
-    {ok, O2G} = moser_utils:dets_open_file(orgname_to_guid),
-    {ok, Orgs} = moser_utils:dets_open_file(orgs_by_guid),
-    {ok, Db}  = moser_utils:dets_open_file(account_db),
+    open_account([]).
+open_account_ro() ->
+    open_account([{access, read}]).
+open_account(Args) ->
+    {ok, U2A} = moser_utils:dets_open_file(user_to_authz, Args),
+    {ok, A2U} = moser_utils:dets_open_file(authz_to_user, Args),
+    {ok, O2G} = moser_utils:dets_open_file(orgname_to_guid, Args),
+    {ok, Orgs} = moser_utils:dets_open_file(orgs_by_guid, Args),
+    {ok, Db}  = moser_utils:dets_open_file(account_db, Args),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,

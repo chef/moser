@@ -27,6 +27,7 @@
 -export([
          dbfile_exists/1,
          dets_open_file/1,
+         dets_open_file/2,
          fix_chef_id/1,
          get_dbname_from_orgid/1,
          get_org_id/1,
@@ -113,10 +114,13 @@ load_process_org(#org_info{org_name = OrgName} = OrgInfo,
 
 
 dets_open_file(Name) ->
+    dets_open_file(Name, [{access, read_write}]).
+
+dets_open_file(Name, Args) ->
     Dir = envy:get(moser, moser_dets_dir,
                    "/srv/piab/mounts/moser",
                    string),
-    dets:open_file(Name, [{file, filename:join([Dir, atom_to_list(Name)])}]).
+    dets:open_file(Name, [{file, filename:join([Dir, atom_to_list(Name)])} | Args]).
 
 dbfile_exists(#org_info{db_name = DbFile}) ->
     filelib:is_file(DbFile).

@@ -278,7 +278,9 @@ insert_one(#org_info{org_name = OrgName} = Org,
 insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc) ->
     BagName = ej:get({<<"data_bag">>}, Data),
     %% returns an unwrapped DBI
-    {ok, ItemData} = chef_data_bag_item:parse_binary_json(chef_json:encode(Data), create),
+    ItemData = soft_validate(data_bag_item,
+                             fun(D) -> chef_data_bag_item:parse_binary_json(D, create) end,
+                             Org, OldId, Data, BagName),
     OrgId = moser_utils:get_org_id(Org),
     DataBagItem = chef_object:new_record(chef_data_bag_item, OrgId, no_authz,
                                          {BagName, ItemData}),
@@ -306,7 +308,10 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% first version of environments had a top-level attributes key which is no longer
     %% allowed. If the key is present with an empty value, just remove it.
     Data1 = remove_empty_top_level_attributes(Data),
-    {ok, EnvData} = chef_environment:parse_binary_json(chef_json:encode(Data1)),
+    Name = ej:get({"name"}, Data1),
+    EnvData = soft_validate(environment,
+                            fun(D) -> chef_environment:parse_binary_json(D) end,
+                            Org, OldId, Data1, Name),
     Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
     ObjWithDate = chef_object:set_created(Env, RequesterId),
     ObjWithOldId = set_id(ObjWithDate, OldId),

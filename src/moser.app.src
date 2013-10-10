@@ -6,9 +6,10 @@
   {applications, [
                   kernel,
                   stdlib,
-		  jiffy,
-		  sqerl,
-		  lager
+                  jiffy,
+                  sqerl,
+                  lager,
+                  crypto
                  ]},
   {included_applications, []},
   {mod, { moser_app, []}},

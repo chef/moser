@@ -4,7 +4,6 @@
 %% @author Marc Paradise <marc@opscode.com>
 %% @copyright 2013, Opscode Inc
 
-
 -module(moser_state_tracker).
 
 -export([init_cache/0,
@@ -42,7 +41,7 @@
          migrated_orgs/0
         ]).
 
- %% Generic transient object state tracking.
+%% Generic transient object state tracking.
 %% Expects that only one transient object migration is being tracked
 %% per vm instance.
 -export([ build_transient_state_table/1,
@@ -84,7 +83,6 @@ insert_one_org(#org_info{org_id = OrgId, org_name = OrgName}) ->
 capture_password_migration_list() ->
     {ok, Data} = fetch_field_values(id, all_unconverted_users_sql(), []),
     build_transient_state_table(Data).
-
 
 build_transient_state_table(Data) when is_list(Data) ->
     case ets:info(transient_object_tracker) of
@@ -185,9 +183,6 @@ next_ready_org() ->
 %% @doc get the next org name to be processed.
 next_purge_ready_org() ->
     fetch_orgs(next_org_sql(), ["completed"], {ok, no_more_orgs}, "completed").
-
-%% @doc get the next user to have password storage migrated.
-
 
 migration_started(OrgName) ->
     update_if_org_in_state(OrgName, start_migration_sql(), "ready", [OrgName]).

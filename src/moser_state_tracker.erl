@@ -4,12 +4,12 @@
 %% @author Marc Paradise <marc@opscode.com>
 %% @copyright 2013, Opscode Inc
 
-
 -module(moser_state_tracker).
 
 -export([init_cache/0,
          capture_full_org_state_list/0,
          capture_full_org_state_list/1,
+         capture_password_migration_list/0,
          add_missing_orgs/0,
          add_missing_orgs/1,
          insert_one_org/1,
@@ -41,7 +41,18 @@
          migrated_orgs/0
         ]).
 
+%% Generic transient object state tracking.
+%% Expects that only one transient object migration is being tracked
+%% per vm instance.
+-export([ build_transient_state_table/1,
+          next_ready_transient_object/0,
+          transient_object_migration_started/1,
+          transient_object_migration_completed/1]).
+
 -include("moser.hrl").
+
+-define(MATCH_SPEC, { '$1', pending, '_' }).
+
 
 %%% API
 
@@ -69,6 +80,29 @@ insert_one_org(#org_info{org_id = OrgId, org_name = OrgName}) ->
             {error, Error}
     end.
 
+capture_password_migration_list() ->
+    {ok, Data} = fetch_field_values(id, all_unconverted_users_sql(), []),
+    build_transient_state_table(Data).
+
+build_transient_state_table(Data) when is_list(Data) ->
+    case ets:info(transient_object_tracker) of
+        undefined ->
+            ets:new(transient_object_tracker, [named_table, public]);
+        _ ->
+            transient_object_tracker
+    end,
+    ets:delete_all_objects(transient_object_tracker),
+    [ets:insert(transient_object_tracker, {Key, pending, undefined}) || Key <- Data].
+
+next_ready_transient_object() ->
+    parse_match_results(ets:match(transient_object_tracker, ?MATCH_SPEC, 1)).
+
+transient_object_migration_started(Key) ->
+    ets:insert(transient_object_tracker, {Key, migrating, undefined}).
+
+transient_object_migration_completed(Key) ->
+    ets:delete(transient_object_tracker, Key).
+
 build_validation_table() ->
     {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
     dets:delete_all_objects(OrgVal),
@@ -80,16 +114,7 @@ next_validation_ready_org() ->
     {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
     % find the first record with result 'pending' and update it to
     % 'validating'
-    MatchSpec = { '$1', pending, '_' },
-    case dets:match(OrgVal, MatchSpec, 1) of
-        '$end_of_table' ->
-            {ok, no_more_orgs};
-        { [[]], _ } ->
-            i_should_not_happen;
-        { [H|_], _ } ->
-            [H1|_] = H,
-            H1
-    end.
+    parse_match_results(dets:match(OrgVal, ?MATCH_SPEC, 1)).
 
 validation_started(OrgName) ->
     {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
@@ -126,6 +151,14 @@ validation_results(OrgName) ->
         [{OrgName, State, Results}] ->
             {State, Results}
     end.
+
+parse_match_results('$end_of_table') ->
+    {ok, no_more};
+parse_match_results({ [[]], _ }) ->
+    i_should_not_happen;
+parse_match_results({ [H|_], _}) ->
+    [H1|_] = H,
+    H1.
 
 %% @doc true if org state allows it to be migrated
 is_ready(OrgName) ->
@@ -285,9 +318,25 @@ fetch_orgs(SQL, Params, EmptyReturn, ErrorDescription) ->
             Value
     end.
 
+
+%% More generic retrieval for transient mgiration data .
+fetch_field_values(FieldName, SQL, Args) ->
+    case sqerl:execute(SQL, Args) of
+        {error, Error} ->
+            lager:error("Failed to fetch user list: ~p", [Error]),
+            {error, Error};
+        {ok, []} ->
+            {ok, []};
+        {ok, Rows } when is_list(Rows) ->
+            XF = sqerl_transformers:rows_as_scalars(FieldName),
+            XF(Rows)
+    end.
+
 %%
 %% SQL Statements
 %%
+all_unconverted_users_sql() ->
+    <<"SELECT id FROM users WHERE hashed_password is null ORDER BY created_at">>.
 
 insert_org_sql() ->
     <<"INSERT INTO org_migration_state (org_name, org_id) VALUES ($1, $2)">>.

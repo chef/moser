@@ -132,7 +132,7 @@ insert_databag(Org, {{databag, Id}, Data} = Object, Acc) ->
             DataBag = chef_object:new_record(chef_data_bag, OrgId, AuthzId, Name),
             ObjWithDate = chef_object:set_created(DataBag, RequesterId),
             ObjWithOldId = set_id(ObjWithDate, Id),
-            try_insert(Org, ObjWithOldId, Id, AuthzId, fun chef_sql:create_data_bag/1),
+            try_insert(Org, ObjWithOldId, Id, AuthzId),
             dict:update_counter(databag, 1, Acc);
         not_found ->
             %% ignore object if authz id not found
@@ -261,6 +261,13 @@ insert_one(_Org, Item, Acc) ->
     lager:warning("unexpected item in insert_one ~p", [Item]),
     Acc.
 
+create_record(RequesterId, OldId, Type, Org, AuthzId, Data) ->
+    OrgId = moser_utils:get_org_id(Org),
+    Rec = chef_object:new_record(Type, OrgId, AuthzId, Data),
+    ObjWithDate = chef_object:set_created(Rec, RequesterId),
+    set_id(ObjWithDate, OldId).
+    
+
 insert_one(#org_info{org_name = OrgName} = Org,
            {{client, Name}, {OldId, Data}},
            AuthzId, RequesterId, Acc) ->
@@ -269,11 +276,8 @@ insert_one(#org_info{org_name = OrgName} = Org,
     %% assign validator flag based on name: $OrgName-validator
     ClientData = ej:set({<<"validator">>}, ClientData0,
                         is_validator(OrgName, ClientData0)),
-    OrgId = moser_utils:get_org_id(Org),
-    Client = chef_object:new_record(chef_client, OrgId, AuthzId, ClientData),
-    ObjWithDate = chef_object:set_created(Client, RequesterId),
-    ObjWithOldId = set_id(ObjWithDate, OldId),
-    try_insert(Org, ObjWithOldId, OldId, AuthzId, fun chef_sql:create_client/1),
+    ObjWithOldId = create_record(RequesterId, OldId, chef_client, Org, AuthzId, ClientData),
+    try_insert(Org, ObjWithOldId, OldId, AuthzId),
     dict:update_counter(client, 1, Acc);
 insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc) ->
     BagName = ej:get({<<"data_bag">>}, Data),
@@ -281,12 +285,8 @@ insert_one(Org, {{databag_item = Type, OldId}, Data}, _AuthzId, RequesterId, Acc
     ItemData = soft_validate(data_bag_item,
                              fun(D) -> chef_data_bag_item:parse_binary_json(D, create) end,
                              Org, OldId, Data, BagName),
-    OrgId = moser_utils:get_org_id(Org),
-    DataBagItem = chef_object:new_record(chef_data_bag_item, OrgId, no_authz,
-                                         {BagName, ItemData}),
-    ObjWithDate = chef_object:set_created(DataBagItem, RequesterId),
-    ObjWithOldId = set_id(ObjWithDate, OldId),
-    try_insert(Org, ObjWithOldId, OldId, <<"unset">>, fun chef_sql:create_data_bag_item/1),
+    ObjWithOldId = create_record(RequesterId, OldId, chef_data_bag_item, Org, no_authz, {BagName, ItemData}),
+    try_insert(Org, ObjWithOldId, OldId, <<"unset">>),
     dict:update_counter(Type, 1, Acc);
 insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     %% TODO: a different API in chef_role would eliminate a JSON/EJSON round-trip for
@@ -295,16 +295,11 @@ insert_one(Org, {{role, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     RoleData = soft_validate(role,
                              fun(D) -> chef_role:parse_binary_json(D, create) end,
                              Org, OldId, Data, Name),
-
-    OrgId = moser_utils:get_org_id(Org),
-    Role = chef_object:new_record(chef_role, OrgId, AuthzId, RoleData),
-    ObjWithDate = chef_object:set_created(Role, RequesterId),
-    ObjWithOldId = set_id(ObjWithDate, OldId),
-    try_insert(Org, ObjWithOldId, OldId, AuthzId, fun chef_sql:create_role/1),
+    ObjWithOldId = create_record(RequesterId, OldId, chef_role, Org, AuthzId, RoleData),
+    try_insert(Org, ObjWithOldId, OldId, AuthzId),
     dict:update_counter(role, 1, Acc);
 %% Environments
 insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
-    OrgId = moser_utils:get_org_id(Org),
     %% first version of environments had a top-level attributes key which is no longer
     %% allowed. If the key is present with an empty value, just remove it.
     Data1 = remove_empty_top_level_attributes(Data),
@@ -312,10 +307,8 @@ insert_one(Org, {{environment, OldId}, Data}, AuthzId, RequesterId, Acc) ->
     EnvData = soft_validate(environment,
                             fun(D) -> chef_environment:parse_binary_json(D) end,
                             Org, OldId, Data1, Name),
-    Env = chef_object:new_record(chef_environment, OrgId, AuthzId, EnvData),
-    ObjWithDate = chef_object:set_created(Env, RequesterId),
-    ObjWithOldId = set_id(ObjWithDate, OldId),
-    try_insert(Org, ObjWithOldId, OldId, AuthzId, fun chef_sql:create_environment/1),
+    ObjWithOldId = create_record(RequesterId, OldId, chef_environment, Org, AuthzId, EnvData),
+    try_insert(Org, ObjWithOldId, OldId, AuthzId),
     dict:update_counter(environment, 1, Acc);
 insert_one(Org, {{cookbook_version = Type, OldId}, Data}, AuthzId, RequesterId, Acc) ->
 
@@ -409,8 +402,9 @@ insert_one(Org, Item, _AuthzId, _RequesterId, Acc) ->
 %% Almost all of the insert operations call a `chef_sql:create_*(ObjectRec)' function and
 %% expect a return of `{ok, 1}'. This function handles this common case and logs details
 %% about the insert attempt along with OK/FAIL status.
-try_insert(Org, ObjectRec, OldId, AuthzId, Fun) ->
-    Status = try Fun(ObjectRec) of
+try_insert(Org, ObjectRec, OldId, AuthzId) ->
+    Status = try
+                 chef_sql:create_object(chef_object:create_query(ObjectRec), chef_object:flatten(ObjectRec)) of
                  {ok, 1} -> ok;
                  Error ->
                      {chef_sql, {Error, OldId, AuthzId}}
@@ -476,7 +470,7 @@ clean_constraint([]) ->
 clean_constraint([VC]) ->
     clean_constraint(VC);
 clean_constraint(VC) when is_binary(VC) ->
-    case chef_object:parse_constraint(VC) of
+    case chef_object_base:parse_constraint(VC) of
         error ->
             %% what now?
             error({invalid_constraint, VC});

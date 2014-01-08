@@ -13,6 +13,7 @@
          add_missing_orgs/0,
          add_missing_orgs/1,
          insert_one_org/1,
+         insert_one_org/2,
          build_validation_table/0,
          validation_results/1,
          validation_started/1,
@@ -20,30 +21,49 @@
          validation_failed/2,
          next_validation_ready_org/0,
          next_ready_org/0,          % Grab next org name waiting to be processed
+         next_ready_org/1,
          next_purge_ready_org/0,    % Grab next org name waiting to be purged
          migration_started/1,       % Update org state to indicate migration started
+         migration_started/2,
          migration_failed/2,        % Update org state to indicate migration failed
+         migration_failed/3,
          migration_successful/1,    % Update org state to indicate migration successful
+         migration_successful/2,
          hold_migration/1,          % reset org state from ready to holding
+         hold_migration/2,
          ready_migration/1,         % reset org state from holding to ready
+         ready_migration/2,
          reset_migration/1,         % reset org state from failed to holding.
+         reset_migration/2,
          reset_purged_orgs/0,
          reset_purged_org_to_completed/1,
          reset_purge_started_orgs/0,
          reset_purge_started_org_to_completed/1,
          is_ready/1,                % true if org state allows migration,
+         is_ready/2,
          org_state/1,               % migration state of the named org
+         org_state/2,
          org_id_from_name/1,
          all_migrated_orgs/0,
+         all_migrated_orgs/1,
          unmigrated_orgs/0,
+         unmigrated_orgs/1,
          purge_started/1,
          purge_successful/1,
-         migrated_orgs/0
+         migrated_orgs/0,
+         migrated_orgs/1,
+         force_org_to_state/3
         ]).
 
 -include("moser.hrl").
 
+-define(PHASE_ONE_MIGRATION_NAME, <<"phase_1">>).
+-define(PURGE_MIGRATION_NAME, <<"purge">>).
+
 %%% API
+
+force_org_to_state(OrgName, MigrationType, State) ->
+    exec_update(reset_org_sql(), [OrgName, State, MigrationType]).
 
 init_cache() ->
     ets:new(org_name_id_cache, [public, named_table]).
@@ -61,8 +81,11 @@ add_missing_orgs() ->
 add_missing_orgs(#account_info{} = _AcctInfo) ->
     {error, {org_capture_disabled, "Use moser_state_tracker:insert_one_org/1 for specific orgs instead"}}.
 
-insert_one_org(#org_info{org_id = OrgId, org_name = OrgName}) ->
-    case sqerl:execute(insert_org_sql(), [OrgName, OrgId]) of
+insert_one_org(Org) ->
+    insert_one_org(Org, ?PHASE_ONE_MIGRATION_NAME).
+
+insert_one_org( #org_info{org_id = OrgId, org_name = OrgName}, MigrationType) ->
+    case sqerl:execute(insert_org_sql(), [OrgName, OrgId, MigrationType]) of
         {ok, 1} ->
             ok;
         {error, Error} ->
@@ -129,10 +152,13 @@ validation_results(OrgName) ->
 
 %% @doc true if org state allows it to be migrated
 is_ready(OrgName) ->
-    is_org_in_state(OrgName, "ready").
+    is_ready(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
-is_org_in_state(OrgName, State) ->
-    case sqerl:execute(is_org_in_state_sql(), [OrgName, State]) of
+is_ready(OrgName, MigrationType) ->
+    is_org_in_state(OrgName, "ready", MigrationType).
+
+is_org_in_state(OrgName, State, MigrationType) ->
+    case sqerl:execute(is_org_in_state_sql(), [OrgName, State, MigrationType]) of
         {error, Error} ->
             lager:error("Failed to verify org state: ~p ~p Error: ~p",
                 [OrgName, State, Error]),
@@ -145,52 +171,73 @@ is_org_in_state(OrgName, State) ->
 
 %% @doc get the next org name to be processed.
 next_ready_org() ->
-    fetch_orgs(next_org_sql(), ["ready"], {ok, no_more_orgs}, "pending").
+    next_ready_org(?PHASE_ONE_MIGRATION_NAME).
+
+next_ready_org(MigrationType) ->
+    fetch_orgs(next_org_sql(), ["ready", MigrationType], {ok, no_more_orgs}, "pending").
 
 %% @doc get the next org name to be processed.
 next_purge_ready_org() ->
-    fetch_orgs(next_org_sql(), ["completed"], {ok, no_more_orgs}, "completed").
+    next_ready_org(?PURGE_MIGRATION_NAME).
 
 migration_started(OrgName) ->
-    update_if_org_in_state(OrgName, start_migration_sql(), "ready", [OrgName]).
+    migration_started(OrgName, ?PHASE_ONE_MIGRATION_NAME).
+
+migration_started(OrgName, MigrationType) ->
+    update_if_org_in_state(OrgName, MigrationType, start_migration_sql(), "ready", [OrgName]).
 
 migration_failed(OrgName, FailureLocation) ->
-    update_if_org_in_state(OrgName, finish_migration_sql(), "started", [OrgName, "failed", FailureLocation]).
+    migration_failed(OrgName, FailureLocation, ?PHASE_ONE_MIGRATION_NAME).
+
+migration_failed(OrgName, FailureLocation, MigrationType) ->
+    update_if_org_in_state(OrgName, MigrationType, finish_migration_sql(), "started", [OrgName, "failed", FailureLocation]).
 
 migration_successful(OrgName) ->
-    update_if_org_in_state(OrgName, finish_migration_sql(), "started", [OrgName, "completed", ""]).
+    migration_successful(OrgName, ?PHASE_ONE_MIGRATION_NAME).
+
+migration_successful(OrgName, MigrationType) ->
+    update_if_org_in_state(OrgName, MigrationType, finish_migration_sql(), "started", [OrgName, "completed", ""]).
 
 purge_started(OrgName) ->
-    update_if_org_in_state(OrgName, update_state_sql(), "completed", [OrgName, "purge_started"]).
+    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, update_state_sql(), "completed", [OrgName, "purge_started"]).
 
 purge_successful(OrgName) ->
-    update_if_org_in_state(OrgName, update_state_sql(), "purge_started", [OrgName, "purge_successful"]).
+    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, update_state_sql(), "purge_started", [OrgName, "purge_successful"]).
 
 reset_migration(OrgName) ->
-    update_if_org_in_state(OrgName, reset_org_sql(), "failed", [OrgName, "holding"]).
+    reset_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
+
+reset_migration(OrgName, MigrationType) ->
+    update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "failed", [OrgName, "holding"]).
 
 reset_purged_orgs() ->
-    [update_if_org_in_state(OrgName, reset_org_sql(), "purge_successful", [OrgName, "holding"]) || OrgName <- purged_orgs()].
+    [update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_successful", [OrgName, "holding"]) || OrgName <- purged_orgs()].
 
 reset_purged_org_to_completed(OrgName) ->
-    update_if_org_in_state(OrgName, reset_org_sql(), "purge_successful", [OrgName, "completed"]).
+    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_successful", [OrgName, "completed"]).
 
 reset_purge_started_orgs() ->
-    [update_if_org_in_state(OrgName, reset_org_sql(), "purge_started", [OrgName, "holding"]) || OrgName <- purge_started_orgs()].
+    [update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_started", [OrgName, "holding"]) || OrgName <- purge_started_orgs()].
 
 reset_purge_started_org_to_completed(OrgName) ->
-    update_if_org_in_state(OrgName, reset_org_sql(), "purge_started", [OrgName, "completed"]).
+    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_started", [OrgName, "completed"]).
 
 hold_migration(OrgName) ->
-    update_if_org_in_state(OrgName, reset_org_sql(), "ready", [OrgName, "holding"]).
+    hold_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
+
+hold_migration(OrgName, MigrationType) ->
+    update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "ready", [OrgName, "holding"]).
 
 ready_migration(OrgName) ->
-    update_if_org_in_state(OrgName, reset_org_sql(), "holding", [OrgName, "ready"]).
+    ready_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
-update_if_org_in_state(OrgName, SQL, State, Args) ->
-    case is_org_in_state(OrgName, State) of
+ready_migration(OrgName, MigrationType) ->
+    update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "holding", [OrgName, "ready"]).
+
+update_if_org_in_state(OrgName, MigrationType, SQL, State, Args) ->
+    case is_org_in_state(OrgName, State, MigrationType) of
         true ->
-            exec_update(SQL, Args);
+            exec_update(SQL, Args ++ [MigrationType]);
         false ->
             {error, not_in_expected_state, State}
     end.
@@ -205,7 +252,10 @@ exec_update(Query, Params) ->
     end.
 
 org_state(OrgName) ->
-    case sqerl:execute(org_state_sql(), [OrgName]) of
+    org_state(OrgName, ?PHASE_ONE_MIGRATION_NAME).
+
+org_state(OrgName, MigrationType) ->
+    case sqerl:execute(org_state_sql(), [OrgName, MigrationType]) of
         {error, Error} ->
             lager:error("Failed to fetch org state org: ~p", [Error]),
             {error, Error};
@@ -244,24 +294,33 @@ org_id_from_name_sql() ->
     <<"SELECT org_id FROM org_migration_state WHERE org_name = $1">>.
 
 all_migrated_orgs() ->
-    org_names_in_states(["completed", "purge_successful", "purge_started"]).
+    all_migrated_orgs(?PHASE_ONE_MIGRATION_NAME).
+
+all_migrated_orgs(MigrationType) ->
+    org_names_in_states(["completed", "purge_successful", "purge_started"], MigrationType).
 
 unmigrated_orgs() ->
-    org_names_in_states(["holding", "ready"]).
+    unmigrated_orgs(?PHASE_ONE_MIGRATION_NAME).
+
+unmigrated_orgs(MigrationType) ->
+    org_names_in_states(["holding", "ready"], MigrationType).
 
 migrated_orgs() ->
-    org_names_in_states(["completed"]).
+    migrated_orgs(?PHASE_ONE_MIGRATION_NAME).
+
+migrated_orgs(MigrationType) ->
+    org_names_in_states(["completed"], MigrationType).
 
 purged_orgs() ->
-    org_names_in_states(["purge_successful"]).
+    org_names_in_states(["purge_successful"], ?PURGE_MIGRATION_NAME).
 
 purge_started_orgs() ->
-    org_names_in_states(["purge_started"]).
+    org_names_in_states(["purge_started"], ?PURGE_MIGRATION_NAME).
 
-org_names_in_states(States)->
+org_names_in_states(States, MigrationType) ->
     States2 = [list_to_binary(X) || X <- States, is_list(X)],
     case sqerl:adhoc_select([<<"org_name">>], <<"org_migration_state">>,
-                            {<<"state">>, in, States2}) of
+                            {'and',[{<<"state">>, in, States2}, {<<"migration_type">>, equals, MigrationType}]}) of
         {error, Error} ->
             lager:error("Failed to fetch org names for orgs in state(s): ~p error: ~p", [States, Error]);
         {ok, []} ->
@@ -290,33 +349,33 @@ fetch_orgs(SQL, Params, EmptyReturn, ErrorDescription) ->
 %%
 
 insert_org_sql() ->
-    <<"INSERT INTO org_migration_state (org_name, org_id) VALUES ($1, $2)">>.
+    <<"INSERT INTO org_migration_state (org_name, org_id, migration_type) VALUES ($1, $2, $3)">>.
 
 start_migration_sql() ->
     <<"UPDATE org_migration_state
        SET state = 'started', migration_start = CURRENT_TIMESTAMP
-       WHERE org_name = $1">>.
+       WHERE org_name = $1 AND migration_type = $2">>.
 
 finish_migration_sql() ->
     <<"UPDATE org_migration_state
        SET state = $2, fail_location = $3, migration_end = CURRENT_TIMESTAMP
-       WHERE org_name = $1">>.
+       WHERE org_name = $1 AND migration_type = $4">>.
 
 update_state_sql() ->
-    <<"UPDATE org_migration_state SET state = $2 WHERE org_name = $1">>.
+    <<"UPDATE org_migration_state SET state = $2 WHERE org_name = $1 AND migration_type = $3">>.
 
 reset_org_sql() ->
     <<"UPDATE org_migration_state
        SET state = $2, fail_location = NULL,
            migration_start = NULL, migration_end = NULL
-       WHERE org_name = $1">>.
+       WHERE org_name = $1 AND migration_type = $3">>.
 
 org_state_sql() ->
-    <<"SELECT state FROM org_migration_state WHERE org_name = $1">>.
+    <<"SELECT state FROM org_migration_state WHERE org_name = $1 and migration_type = $2">>.
 
 next_org_sql() ->
-    <<"SELECT org_name FROM org_migration_state WHERE state = $1 ORDER BY org_id LIMIT 1">>.
+    <<"SELECT org_name FROM org_migration_state WHERE state = $1 AND migration_type = $2 ORDER BY org_id LIMIT 1">>.
 
 is_org_in_state_sql() ->
-    <<"SELECT COUNT(*) count FROM org_migration_state WHERE state = $2 AND org_name = $1">>.
+    <<"SELECT COUNT(*) count FROM org_migration_state WHERE state = $2 AND org_name = $1 and migration_type = $3">>.
 

@@ -55,7 +55,7 @@
          force_org_to_state/3
         ]).
 
--include("moser.hrl").
+-include_lib("moser/include/moser.hrl").
 
 -define(PHASE_ONE_MIGRATION_NAME, <<"phase_1">>).
 -define(PURGE_MIGRATION_NAME, <<"purge">>).

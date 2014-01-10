@@ -10,7 +10,7 @@
         restore_org/1
     ]).
 
--include("moser.hrl").
+-include_lib("moser/include/moser.hrl").
 
 backup(disabled, _) ->
     ok;

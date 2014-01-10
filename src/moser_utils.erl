@@ -40,7 +40,7 @@
          us_to_secs/1
         ]).
 
--include("moser.hrl").
+-include_lib("moser/include/moser.hrl").
 
 
 type_for_object({{client, _}, {_, _}}) ->

@@ -37,7 +37,7 @@
          remove_precreated_from_file_list/1,
          get_couch_path/0]).
 
--include("moser.hrl").
+-include_lib("moser/include/moser.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 

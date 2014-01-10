@@ -12,7 +12,7 @@
         reset_purged_org/1
     ]).
 
--include("moser.hrl").
+-include_lib("moser/include/moser.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
 -define(COUCH_REST_TYPE, {<<"couchrest-type">>, <<"Mixlib::Authorization::AuthJoin">>}).

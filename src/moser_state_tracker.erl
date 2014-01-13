@@ -57,8 +57,8 @@
 
 -include_lib("moser/include/moser.hrl").
 
--define(PHASE_ONE_MIGRATION_NAME, <<"phase_1">>).
--define(PURGE_MIGRATION_NAME, <<"purge">>).
+-define(PHASE_ONE_MIGRATION_NAME, mover_phase_1_migrator_callback:migration_type()).
+-define(PURGE_MIGRATION_NAME, <<"purge_migration">>).
 
 %%% API
 

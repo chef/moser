@@ -22,7 +22,6 @@
          next_validation_ready_org/0,
          next_ready_org/0,          % Grab next org name waiting to be processed
          next_ready_org/1,
-         next_purge_ready_org/0,    % Grab next org name waiting to be purged
          migration_started/1,       % Update org state to indicate migration started
          migration_started/2,
          migration_failed/2,        % Update org state to indicate migration failed
@@ -35,21 +34,13 @@
          ready_migration/2,
          reset_migration/1,         % reset org state from failed to holding.
          reset_migration/2,
-         reset_purged_orgs/0,
-         reset_purged_org_to_completed/1,
-         reset_purge_started_orgs/0,
-         reset_purge_started_org_to_completed/1,
          is_ready/1,                % true if org state allows migration,
          is_ready/2,
          org_state/1,               % migration state of the named org
          org_state/2,
          org_id_from_name/1,
-         all_migrated_orgs/0,
-         all_migrated_orgs/1,
          unmigrated_orgs/0,
          unmigrated_orgs/1,
-         purge_started/1,
-         purge_successful/1,
          migrated_orgs/0,
          migrated_orgs/1,
          force_org_to_state/3
@@ -58,7 +49,6 @@
 -include_lib("moser/include/moser.hrl").
 
 -define(PHASE_ONE_MIGRATION_NAME, mover_phase_1_migrator_callback:migration_type()).
--define(PURGE_MIGRATION_NAME, <<"purge_migration">>).
 
 %%% API
 
@@ -95,7 +85,7 @@ insert_one_org( #org_info{org_id = OrgId, org_name = OrgName}, MigrationType) ->
 build_validation_table() ->
     {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
     dets:delete_all_objects(OrgVal),
-    AllOrgs = all_migrated_orgs(),
+    AllOrgs = migrated_orgs(),
     [dets:insert(OrgVal, {OrgName, pending, []}) || OrgName <- AllOrgs],
     dets:close(OrgVal).
 
@@ -176,10 +166,6 @@ next_ready_org() ->
 next_ready_org(MigrationType) ->
     fetch_orgs(next_org_sql(), ["ready", MigrationType], {ok, no_more_orgs}, "pending").
 
-%% @doc get the next org name to be processed.
-next_purge_ready_org() ->
-    next_ready_org(?PURGE_MIGRATION_NAME).
-
 migration_started(OrgName) ->
     migration_started(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
@@ -198,29 +184,11 @@ migration_successful(OrgName) ->
 migration_successful(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, finish_migration_sql(), "started", [OrgName, "completed", ""]).
 
-purge_started(OrgName) ->
-    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, update_state_sql(), "completed", [OrgName, "purge_started"]).
-
-purge_successful(OrgName) ->
-    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, update_state_sql(), "purge_started", [OrgName, "purge_successful"]).
-
 reset_migration(OrgName) ->
     reset_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
 reset_migration(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "failed", [OrgName, "holding"]).
-
-reset_purged_orgs() ->
-    [update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_successful", [OrgName, "holding"]) || OrgName <- purged_orgs()].
-
-reset_purged_org_to_completed(OrgName) ->
-    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_successful", [OrgName, "completed"]).
-
-reset_purge_started_orgs() ->
-    [update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_started", [OrgName, "holding"]) || OrgName <- purge_started_orgs()].
-
-reset_purge_started_org_to_completed(OrgName) ->
-    update_if_org_in_state(OrgName, ?PURGE_MIGRATION_NAME, reset_org_sql(), "purge_started", [OrgName, "completed"]).
 
 hold_migration(OrgName) ->
     hold_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
@@ -293,12 +261,6 @@ fetch_org_id_from_name(OrgName) ->
 org_id_from_name_sql() ->
     <<"SELECT org_id FROM org_migration_state WHERE org_name = $1">>.
 
-all_migrated_orgs() ->
-    all_migrated_orgs(?PHASE_ONE_MIGRATION_NAME).
-
-all_migrated_orgs(MigrationType) ->
-    org_names_in_states(["completed", "purge_successful", "purge_started"], MigrationType).
-
 unmigrated_orgs() ->
     unmigrated_orgs(?PHASE_ONE_MIGRATION_NAME).
 
@@ -310,12 +272,6 @@ migrated_orgs() ->
 
 migrated_orgs(MigrationType) ->
     org_names_in_states(["completed"], MigrationType).
-
-purged_orgs() ->
-    org_names_in_states(["purge_successful"], ?PURGE_MIGRATION_NAME).
-
-purge_started_orgs() ->
-    org_names_in_states(["purge_started"], ?PURGE_MIGRATION_NAME).
 
 org_names_in_states(States, MigrationType) ->
     States2 = [list_to_binary(X) || X <- States, is_list(X)],
@@ -360,9 +316,6 @@ finish_migration_sql() ->
     <<"UPDATE org_migration_state
        SET state = $2, fail_location = $3, migration_end = CURRENT_TIMESTAMP
        WHERE org_name = $1 AND migration_type = $4">>.
-
-update_state_sql() ->
-    <<"UPDATE org_migration_state SET state = $2 WHERE org_name = $1 AND migration_type = $3">>.
 
 reset_org_sql() ->
     <<"UPDATE org_migration_state

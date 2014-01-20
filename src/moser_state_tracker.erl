@@ -141,7 +141,7 @@ is_org_in_state(OrgName, State, MigrationType) ->
 
 %% @doc get the next org name to be processed.
 next_ready_org(MigrationType) ->
-    fetch_orgs(next_org_sql(), ["ready", MigrationType], {ok, no_more_orgs}, "pending").
+    fetch_orgs(next_org_sql(), ["ready", MigrationType], "pending").
 
 migration_started(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, start_migration_sql(), "ready", [OrgName]).
@@ -238,13 +238,13 @@ org_names_in_states(States, MigrationType) ->
             Value
     end.
 
-fetch_orgs(SQL, Params, EmptyReturn, ErrorDescription) ->
+fetch_orgs(SQL, Params, ErrorDescription) ->
     case sqerl:execute(SQL, Params) of
         {error, Error} ->
             lager:error("Failed to fetch ~p orgname ~p", [ErrorDescription, Error]),
             {error, Error};
         {ok, []} ->
-            EmptyReturn;
+            {ok, no_more_orgs};
         {ok, Rows } when is_list(Rows) ->
             XF = sqerl_transformers:rows_as_scalars(org_name),
             {ok, Value} = XF(Rows),

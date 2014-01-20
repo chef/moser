@@ -12,43 +12,29 @@
          capture_full_org_state_list/1,
          add_missing_orgs/0,
          add_missing_orgs/1,
-         insert_one_org/1,
          insert_one_org/2,
-         build_validation_table/0,
+         build_validation_table/1,
          validation_results/1,
          validation_started/1,
          validation_completed/2,
          validation_failed/2,
          next_validation_ready_org/0,
-         next_ready_org/0,          % Grab next org name waiting to be processed
-         next_ready_org/1,
-         migration_started/1,       % Update org state to indicate migration started
-         migration_started/2,
-         migration_failed/2,        % Update org state to indicate migration failed
-         migration_failed/3,
-         migration_successful/1,    % Update org state to indicate migration successful
-         migration_successful/2,
-         hold_migration/1,          % reset org state from ready to holding
-         hold_migration/2,
-         ready_migration/1,         % reset org state from holding to ready
-         ready_migration/2,
-         reset_migration/1,         % reset org state from failed to holding.
-         reset_migration/2,
-         is_ready/1,                % true if org state allows migration,
-         is_ready/2,
-         org_state/1,               % migration state of the named org
-         org_state/2,
+         next_ready_org/1,          % Grab next org name waiting to be processed
+         migration_started/2,       % Update org state to indicate migration started
+         migration_failed/3,        % Update org state to indicate migration failed
+         migration_successful/2,    % Update org state to indicate migration successful
+         hold_migration/2,          % reset org state from ready to holding
+         ready_migration/2,         % reset org state from holding to ready
+         reset_migration/2,         % reset org state from failed to holding.
+         is_ready/2,                % true if org state allows migration,
+         org_state/2,               % migration state of the named org
          org_id_from_name/1,
-         unmigrated_orgs/0,
          unmigrated_orgs/1,
-         migrated_orgs/0,
          migrated_orgs/1,
          force_org_to_state/3
         ]).
 
 -include_lib("moser/include/moser.hrl").
-
--define(PHASE_ONE_MIGRATION_NAME, mover_phase_1_migrator_callback:migration_type()).
 
 %%% API
 
@@ -71,9 +57,6 @@ add_missing_orgs() ->
 add_missing_orgs(#account_info{} = _AcctInfo) ->
     {error, {org_capture_disabled, "Use moser_state_tracker:insert_one_org/1 for specific orgs instead"}}.
 
-insert_one_org(Org) ->
-    insert_one_org(Org, ?PHASE_ONE_MIGRATION_NAME).
-
 insert_one_org( #org_info{org_id = OrgId, org_name = OrgName}, MigrationType) ->
     case sqerl:execute(insert_org_sql(), [OrgName, OrgId, MigrationType]) of
         {ok, 1} ->
@@ -82,10 +65,10 @@ insert_one_org( #org_info{org_id = OrgId, org_name = OrgName}, MigrationType) ->
             {error, Error}
     end.
 
-build_validation_table() ->
+build_validation_table(MigrationType) ->
     {ok, OrgVal} = moser_utils:dets_open_file(org_val_state),
     dets:delete_all_objects(OrgVal),
-    AllOrgs = migrated_orgs(),
+    AllOrgs = migrated_orgs(MigrationType),
     [dets:insert(OrgVal, {OrgName, pending, []}) || OrgName <- AllOrgs],
     dets:close(OrgVal).
 
@@ -141,9 +124,6 @@ validation_results(OrgName) ->
     end.
 
 %% @doc true if org state allows it to be migrated
-is_ready(OrgName) ->
-    is_ready(OrgName, ?PHASE_ONE_MIGRATION_NAME).
-
 is_ready(OrgName, MigrationType) ->
     is_org_in_state(OrgName, "ready", MigrationType).
 
@@ -160,44 +140,24 @@ is_org_in_state(OrgName, State, MigrationType) ->
     end.
 
 %% @doc get the next org name to be processed.
-next_ready_org() ->
-    next_ready_org(?PHASE_ONE_MIGRATION_NAME).
-
 next_ready_org(MigrationType) ->
     fetch_orgs(next_org_sql(), ["ready", MigrationType], {ok, no_more_orgs}, "pending").
-
-migration_started(OrgName) ->
-    migration_started(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
 migration_started(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, start_migration_sql(), "ready", [OrgName]).
 
-migration_failed(OrgName, FailureLocation) ->
-    migration_failed(OrgName, FailureLocation, ?PHASE_ONE_MIGRATION_NAME).
-
 migration_failed(OrgName, FailureLocation, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, finish_migration_sql(), "started", [OrgName, "failed", FailureLocation]).
-
-migration_successful(OrgName) ->
-    migration_successful(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
 migration_successful(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, finish_migration_sql(), "started", [OrgName, "completed", ""]).
 
-reset_migration(OrgName) ->
-    reset_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
 reset_migration(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "failed", [OrgName, "holding"]).
 
-hold_migration(OrgName) ->
-    hold_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
-
 hold_migration(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "ready", [OrgName, "holding"]).
-
-ready_migration(OrgName) ->
-    ready_migration(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
 ready_migration(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "holding", [OrgName, "ready"]).
@@ -218,9 +178,6 @@ exec_update(Query, Params) ->
             lager:error("UPDATE FAILED: ~p  ERROR: ~p", [Query, Error]),
             {error, Error}
     end.
-
-org_state(OrgName) ->
-    org_state(OrgName, ?PHASE_ONE_MIGRATION_NAME).
 
 org_state(OrgName, MigrationType) ->
     case sqerl:execute(org_state_sql(), [OrgName, MigrationType]) of
@@ -261,14 +218,8 @@ fetch_org_id_from_name(OrgName) ->
 org_id_from_name_sql() ->
     <<"SELECT org_id FROM org_migration_state WHERE org_name = $1">>.
 
-unmigrated_orgs() ->
-    unmigrated_orgs(?PHASE_ONE_MIGRATION_NAME).
-
 unmigrated_orgs(MigrationType) ->
     org_names_in_states(["holding", "ready"], MigrationType).
-
-migrated_orgs() ->
-    migrated_orgs(?PHASE_ONE_MIGRATION_NAME).
 
 migrated_orgs(MigrationType) ->
     org_names_in_states(["completed"], MigrationType).

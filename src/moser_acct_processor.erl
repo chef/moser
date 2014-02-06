@@ -37,7 +37,7 @@
          expand_org_info/1
         ]).
 
--include("moser.hrl").
+-include_lib("moser/include/moser.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 

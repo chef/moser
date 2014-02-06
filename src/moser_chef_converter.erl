@@ -29,7 +29,7 @@
          cleanup_orgid/1,
          cleanup_all/0]).
 -include_lib("stdlib/include/qlc.hrl").
--include("moser.hrl").
+-include_lib("moser/include/moser.hrl").
 -include_lib("ej/include/ej.hrl").
 -include_lib("chef_objects/include/chef_types.hrl").
 

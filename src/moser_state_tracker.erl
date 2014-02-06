@@ -10,6 +10,7 @@
 -export([init_cache/0,
          capture_full_org_state_list/0,
          capture_full_org_state_list/1,
+         capture_full_org_state_list/2,
          add_missing_orgs/0,
          add_missing_orgs/1,
          insert_one_org/2,
@@ -50,6 +51,30 @@ capture_full_org_state_list() ->
 
 capture_full_org_state_list(#account_info{} = _AcctInfo) ->
     {error, {org_capture_disabled, "Use moser_state_tracker:insert_one_org/1 for specific orgs instead"}}.
+
+capture_full_org_state_list(#account_info{} = AccountInfo, MigrationType) ->
+    AllOrgs = moser_acct_processor:all_orgs(AccountInfo),
+    case insert_orgs(AllOrgs, MigrationType, []) of
+       {error, Reason} ->
+           {error, Reason};
+       Result when is_list(Result) ->
+           {ok, Result}
+    end.
+
+insert_orgs([], _MigrationType,  Acc) ->
+    Acc;
+insert_orgs([#org_info{org_name = OrgName, org_id = OrgId} = Org | Rest], MigrationType, Acc) ->
+    case moser_state_tracker:insert_one_org(Org, MigrationType) of
+        ok ->
+            insert_orgs(Rest, MigrationType, [{OrgName, ok} | Acc]);
+        {error, {error, error, <<"23505">>, _Msg, _Detail}} ->
+            lager:warning([{org_name,OrgName}, {org_id, OrgId}], "org already exists, ignoring"),
+            insert_orgs(Rest, MigrationType, [{OrgName, duplicate} | Acc]);
+        {error, Reason} ->
+            lager:error([{org_name,OrgName}, {org_id, OrgId}],
+                        "stopping - failed to capture state because: ~p", [Reason]),
+            {error, {org_state_load_failed, Reason}}
+    end.
 
 add_missing_orgs() ->
     add_missing_orgs(moser_acct_processor:open_account()).
@@ -231,7 +256,7 @@ org_names_in_states(States, MigrationType) ->
         {error, Error} ->
             lager:error("Failed to fetch org names for orgs in state(s): ~p error: ~p", [States, Error]);
         {ok, []} ->
-            no_orgs_in_state;
+            [];
         {ok, Rows} when is_list(Rows) ->
             XF = sqerl_transformers:rows_as_scalars(org_name),
             {ok, Value} = XF(Rows),

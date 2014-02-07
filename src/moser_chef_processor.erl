@@ -16,6 +16,7 @@
 %%-------------------------------------------------------------------
 %% @author Mark Anderson <mark@opscode.com>
 %% @copyright (C) 2012, Opscode Inc.
+%% @copyright (C) 2014, Chef Inc.
 %% @doc
 %%
 %% @end
@@ -107,7 +108,7 @@ extract_first_type([], _Body) ->
     undefined.
 
 normalize_type_name(<<"Mixlib::Authorization::Models::Client">>) -> {auth, client};
-normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> {auth_simple, container};
+normalize_type_name(<<"Mixlib::Authorization::Models::Container">>) -> {auth, container};
 normalize_type_name(<<"Mixlib::Authorization::Models::Cookbook">>) -> {auth_simple, cookbook};
 normalize_type_name(<<"Mixlib::Authorization::Models::DataBag">>) -> {auth_simple, databag};
 normalize_type_name(<<"Mixlib::Authorization::Models::Environment">>) -> {auth_simple, environment};
@@ -164,10 +165,14 @@ process_item_by_type({auth, client=AuthType}, Org, Key, Body) ->
     %% Client: All the info is in the mixlib record; there is no Chef::Client object
     Name = get_name(AuthType, Body),
     ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
+process_item_by_type({auth, container=AuthType}, Org, Key, Body) ->
+    %% Container: All the info is in the mixlib record; there is no Chef::Client object
+    Name = get_name(AuthType, Body),
+    ets:insert(Org#org_info.auth_ets, {{AuthType, Name}, {Key, Body}});
 process_item_by_type({auth, group=AuthType}, Org, Key, Body) ->
     %% Group: actor_and_group_names, groupname, orgname
     Name = get_name(AuthType, Body),
-    ets:insert(Org#org_info.chef_ets, {{AuthType, Name}, {Key, Body}});
+    ets:insert(Org#org_info.auth_ets, {{AuthType, Name}, {Key, Body}});
 process_item_by_type(design_doc, _, _, _) ->
     ok;
 process_item_by_type(undefined, _Org, _Key, _Body) ->

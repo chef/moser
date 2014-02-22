@@ -101,16 +101,16 @@ get_authz_info(Org, Type, Name, Id, Data) ->
             not_found
     end.
 
-insert_one(Org, {{Type, Name}, {Id, Data}} = Object, Acc) when Type =:= container orelse Type =:= group ->
+insert_one(Org, {{Type, Name}, {Id, Data}}, Acc) when Type =:= container orelse Type =:= group ->
     case get_authz_info(Org, Type, Name, Id, Data) of
         {AuthzId, RequesterId} ->
             OrgId = moser_utils:get_org_id(Org),
             CreatorFun =
                 case Type of
                     container ->
-                        fun() -> chef_object:new_record(oc_chef_container, OrgId, AuthzId, Name) end;
+                        fun() -> chef_object:new_record(oc_chef_container, OrgId, AuthzId, Data) end;
                     group ->
-                        fun() -> chef_object:new_record(oc_chef_group, OrgId, AuthzId, Name) end
+                        fun() -> chef_object:new_record(oc_chef_group, OrgId, AuthzId, Data) end
                 end,
             Object = CreatorFun(),
             ObjWithDate = chef_object:set_created(Object, RequesterId),

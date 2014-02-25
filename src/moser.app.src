@@ -8,8 +8,7 @@
                   stdlib,
 		  jiffy,
 		  sqerl,
-		  lager,
-                  oc_chef_authz
+		  lager
                  ]},
   {included_applications, []},
   {mod, { moser_app, []}},

@@ -27,7 +27,15 @@
 -export([insert/1,
          cleanup_organization/1,
          cleanup_orgid/1,
-         cleanup_all/0]).
+         cleanup_all/0,
+%% consider moving these to separate file
+         try_insert/4,
+         user_to_auth/2,
+         sqerl_delete_helper/2,
+         delete_table_for_org/2,
+         maybe_log_throw/4,
+         maybe_log_error/4
+]).
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("moser/include/moser.hrl").
 -include_lib("ej/include/ej.hrl").

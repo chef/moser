@@ -67,10 +67,10 @@ validate_version(Version, Org, NameVer,  OldId) ->
             case [ F || F <- V, version_out_of_range(F) ] of
                 [] -> ok;
                 _ ->
-                    lager:error(?LOG_META(Org), "cookbook_version ~s (~s) ill_formed ~s ~s", [NameVer, OldId, Version])
+                    lager:error(?LOG_META(Org), "cookbook_version ~s (~s) out_of_range ~s", [NameVer, OldId, Version])
             end;
         _ ->
-            lager:error(?LOG_META(Org), "cookbook_version ~s (~s) ill_formed ~s ~s", [NameVer, OldId, Version])
+            lager:error(?LOG_META(Org), "cookbook_version ~s (~s) ill_formed ~s", [NameVer, OldId, Version])
     end.
 
 insert_warn_dup(#org_info{chef_ets = Chef} = Org, Key, Id) ->

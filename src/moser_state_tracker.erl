@@ -26,6 +26,7 @@
          migration_successful/2,    % Update org state to indicate migration successful
          hold_migration/2,          % reset org state from ready to holding
          ready_migration/2,         % reset org state from holding to ready
+         ready_remaining_migration/1, % reset all holding orgs to ready
          reset_migration/2,         % reset org state from failed to holding.
          is_ready/2,                % true if org state allows migration,
          org_state/2,               % migration state of the named org
@@ -187,6 +188,12 @@ hold_migration(OrgName, MigrationType) ->
 ready_migration(OrgName, MigrationType) ->
     update_if_org_in_state(OrgName, MigrationType, reset_org_sql(), "holding", [OrgName, "ready"]).
 
+ready_remaining_migration(MigrationType) ->
+    update_if_orgs_in_state(MigrationType, reset_remaining_orgs_sql(), "holding", "ready").
+
+update_if_orgs_in_state(MigrationType, SQL, CurrentState, NewState) ->
+    exec_update(SQL, [NewState, CurrentState, MigrationType]).
+
 update_if_org_in_state(OrgName, MigrationType, SQL, State, Args) ->
     case is_org_in_state(OrgName, State, MigrationType) of
         true ->
@@ -298,6 +305,12 @@ reset_org_sql() ->
        SET state = $2, fail_location = NULL,
            migration_start = NULL, migration_end = NULL
        WHERE org_name = $1 AND migration_type = $3">>.
+
+reset_remaining_orgs_sql() ->
+    <<"UPDATE org_migration_state
+       SET state = $1, fail_location = NULL,
+           migration_start = NULL, migration_end = NULL
+       WHERE state = $2 AND migration_type = $3">>.
 
 org_state_sql() ->
     <<"SELECT state FROM org_migration_state WHERE org_name = $1 and migration_type = $2">>.

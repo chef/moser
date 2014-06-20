@@ -410,6 +410,8 @@ insert_one(Org, Item, _AuthzId, _RequesterId, Acc) ->
 %% Almost all of the insert operations call a `chef_sql:create_*(ObjectRec)' function and
 %% expect a return of `{ok, 1}'. This function handles this common case and logs details
 %% about the insert attempt along with OK/FAIL status.
+%%
+%% Org can be global_placeholder_org atom for global objects.
 try_insert(Org, ObjectRec, OldId, AuthzId) ->
     Status = try
                  chef_sql:create_object(chef_object:create_query(ObjectRec), chef_object:flatten(ObjectRec)) of
@@ -428,6 +430,7 @@ throw_not_ok(ok) ->
 throw_not_ok(Error) ->
     throw(Error).
 
+%% Org can be global_placeholder_org atom for global objects.
 log_insert(Status, Org, OldId, AuthzId, ObjectRec) ->
     LogStatus = case Status of
                     ok   -> <<"OK">>;
@@ -437,8 +440,14 @@ log_insert(Status, Org, OldId, AuthzId, ObjectRec) ->
     NewId = chef_object:id(ObjectRec),
     Name = name_from_object(ObjectRec),
     Type = chef_object:type_name(ObjectRec),
-    lager:info(?LOG_META(Org), "INSERT LOG ~s: ~s ~s ~s ~s ~s",
-               [LogStatus, Type, OldId, NewId, AuthzId, Name]),
+    case Org of
+        global_placeholder_org ->
+            lager:info("INSERT LOG ~s: ~s ~s ~s ~s ~s",
+               [LogStatus, Type, OldId, NewId, AuthzId, Name]);
+        Org ->
+            lager:info(?LOG_META(Org), "INSERT LOG ~s: ~s ~s ~s ~s ~s",
+                       [LogStatus, Type, OldId, NewId, AuthzId, Name])
+    end,
     Status.
 
 name_from_object(ObjectRec) ->

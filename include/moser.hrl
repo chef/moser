@@ -47,7 +47,9 @@
           orgname_to_guid,
           orgs_by_guid,
           db,
-          couch_cn 
+          global_containers,
+          global_groups,
+          couch_cn
         }).
 
 %% we need this as a macro because lager uses a parse transform and can't handle a function

@@ -32,6 +32,7 @@
          user_to_auth/3,
          get_org_guid_by_name/2,
          get_org_by_guid/2,
+         get_global_containers_list/1,
          is_precreated_org/1,
          is_precreated_org/2,
          expand_org_info/1
@@ -54,12 +55,16 @@ open_account(Args) ->
     {ok, O2G} = moser_utils:dets_open_file(orgname_to_guid, Args),
     {ok, Orgs} = moser_utils:dets_open_file(orgs_by_guid, Args),
     {ok, Db}  = moser_utils:dets_open_file(account_db, Args),
+    {ok, Containers}  = moser_utils:dets_open_file(global_containers, Args),
+    {ok, Groups}  = moser_utils:dets_open_file(global_groups, Args),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,
                    orgname_to_guid = O2G,
                    orgs_by_guid = Orgs,
                    db = Db,
+                   global_containers = Containers,
+                   global_groups = Groups,
                    couch_cn = chef_otto:connect()
                  }.
 
@@ -67,12 +72,31 @@ close_account(#account_info{user_to_authz = U2A,
                             authz_to_user = A2U,
                             orgname_to_guid = O2G,
                             orgs_by_guid = Orgs,
+                            global_containers = Containers,
+                            global_groups = Groups,
                             db = Db}) ->
     dets:close(U2A),
     dets:close(A2U),
     dets:close(O2G),
     dets:close(Orgs),
+    dets:close(Containers),
+    dets:close(Groups),
     dets:close(Db).
+
+cleanup_account_info(#account_info{user_to_authz = U2A,
+                                   authz_to_user = A2U,
+                                   orgname_to_guid = O2G,
+                                   orgs_by_guid = Orgs,
+                                   global_containers = Containers,
+                                   global_groups = Groups,
+                                   db = Db}) ->
+    dets:delete(U2A),
+    dets:delete(A2U),
+    dets:delete(O2G),
+    dets:delete(Orgs),
+    dets:delete(Containers),
+    dets:delete(Groups),
+    dets:delete(Db).
 
 %% This is now intended to be called only from within mover_manager.
 %% To create the account dets file, please call mover_manager:create_account_dets().
@@ -87,14 +111,6 @@ process_account_file() ->
     decouch_reader:open_process_all(DbName, IterFn),
     close_account(Account).
 
-cleanup_account_info(#account_info{user_to_authz = U2A,
-                                   authz_to_user = A2U,
-                                   orgname_to_guid = O2G,
-                                   db = Db}) ->
-    dets:delete(U2A),
-    dets:delete(A2U),
-    dets:delete(O2G),
-    dets:delete(Db).
 
 process_account_item(Account, Key, RevId, Body) ->
     Type = moser_chef_processor:extract_type(Key, Body),
@@ -143,7 +159,15 @@ process_item_by_type(org_user,
     ok;
 process_item_by_type(design_doc,
                      #account_info{db=Db}, Key, RevId, Body) ->
-    dets:insert(Db, {{org_user, Key}, Body, RevId}),
+    dets:insert(Db, {{design_doc, Key}, Body, RevId}),
+    ok;
+process_item_by_type({auth, container},
+                     #account_info{global_containers=Containers}, Key, RevId, Body) ->
+    dets:insert(Containers, {Key, Body, RevId}),
+    ok;
+process_item_by_type({auth, group},
+                     #account_info{global_groups=Groups}, Key, RevId, Body) ->
+    dets:insert(Groups, {Key, Body, RevId}),
     ok;
 process_item_by_type(_Type, _Acct, _Key, _RevId, _Body) ->
     %% happily ignore unknown types
@@ -229,6 +253,17 @@ is_precreated_org({[_H|_T]} = OrgEjson)  ->
 
 is_precreated_org(OrgId, AInfo) ->
     is_precreated_org(get_org_by_guid(OrgId, AInfo)).
+
+%% returns a list of [{container_guid, authz_guid, last_requestor_guid, container_name_atom}, ...]
+get_global_containers_list(#account_info{global_containers=GlobalContainers,
+                                         user_to_authz=UserToAuthz
+                                        }) ->
+    Fun = fun({Guid, RawObject, _}, Acc) ->
+                  {[{<<"containername">>,ContainerName}, _, {<<"requester_id">>,RequesterId}, _]} = RawObject,
+                  [{_, AuthzId, _, _}] = dets:lookup(UserToAuthz, Guid),
+                  [{Guid, AuthzId, RequesterId, ContainerName, RawObject} | Acc]
+          end,
+    dets:foldl(Fun, [], GlobalContainers).
 
 %% FIXME: account_info is really a global tabel and could be extracted out.
 

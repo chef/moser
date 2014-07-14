@@ -46,9 +46,12 @@
           authz_to_user,
           orgname_to_guid,
           orgs_by_guid,
+          org_id_to_guid,
           db,
           global_containers,
           global_groups,
+          org_user_associations,
+          association_requests,
           couch_cn
         }).
 

@@ -165,10 +165,6 @@ process_item_by_type({auth, container},
                      #account_info{global_containers=Containers}, Key, RevId, Body) ->
     dets:insert(Containers, {Key, Body, RevId}),
     ok;
-process_item_by_type({auth, group},
-                     #account_info{global_groups=Groups}, Key, RevId, Body) ->
-    dets:insert(Groups, {Key, Body, RevId}),
-    ok;
 process_item_by_type(_Type, _Acct, _Key, _RevId, _Body) ->
     %% happily ignore unknown types
     ok.

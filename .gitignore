@@ -3,8 +3,9 @@ apps/moser/ebin
 *.beam
 deps/*
 rel/moser
-#*
 *~
+\#*
+.#*
 .plt
 *.couch
 .eunit

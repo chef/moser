@@ -35,7 +35,9 @@
          get_global_containers_list/1,
          is_precreated_org/1,
          is_precreated_org/2,
-         expand_org_info/1
+         expand_org_info/1,
+         get_parsed_org_object_by_name/2,
+         all_org_association_data/2
         ]).
 
 -include_lib("moser/include/moser.hrl").
@@ -53,34 +55,46 @@ open_account(Args) ->
     {ok, U2A} = moser_utils:dets_open_file(user_to_authz, Args),
     {ok, A2U} = moser_utils:dets_open_file(authz_to_user, Args),
     {ok, O2G} = moser_utils:dets_open_file(orgname_to_guid, Args),
+    {ok, OrgIdToGuid} = moser_utils:dets_open_file(org_id_to_guid, Args),
     {ok, Orgs} = moser_utils:dets_open_file(orgs_by_guid, Args),
     {ok, Db}  = moser_utils:dets_open_file(account_db, Args),
     {ok, Containers}  = moser_utils:dets_open_file(global_containers, Args),
     {ok, Groups}  = moser_utils:dets_open_file(global_groups, Args),
+    {ok, OrgUserAssoc}  = moser_utils:dets_open_file(org_user_associations, Args),
+    {ok, AssociationRequests}  = moser_utils:dets_open_file(association_requests, Args),
     #account_info{
                    user_to_authz = U2A,
                    authz_to_user = A2U,
                    orgname_to_guid = O2G,
+                   org_id_to_guid = OrgIdToGuid,
                    orgs_by_guid = Orgs,
                    db = Db,
                    global_containers = Containers,
                    global_groups = Groups,
+                   org_user_associations = OrgUserAssoc,
+                   association_requests = AssociationRequests,
                    couch_cn = chef_otto:connect()
                  }.
 
 close_account(#account_info{user_to_authz = U2A,
                             authz_to_user = A2U,
                             orgname_to_guid = O2G,
+                            org_id_to_guid = OrgIdToGuid,
                             orgs_by_guid = Orgs,
                             global_containers = Containers,
                             global_groups = Groups,
+                            org_user_associations = OrgUserAssoc,
+                            association_requests = AssociationRequests,
                             db = Db}) ->
     dets:close(U2A),
     dets:close(A2U),
     dets:close(O2G),
+    dets:close(OrgIdToGuid),
     dets:close(Orgs),
     dets:close(Containers),
     dets:close(Groups),
+    dets:close(OrgUserAssoc),
+    dets:close(AssociationRequests),
     dets:close(Db).
 
 cleanup_account_info(#account_info{user_to_authz = U2A,
@@ -89,6 +103,8 @@ cleanup_account_info(#account_info{user_to_authz = U2A,
                                    orgs_by_guid = Orgs,
                                    global_containers = Containers,
                                    global_groups = Groups,
+                                   org_user_associations = OrgUserAssoc,
+                                   association_requests = AssociationRequests,
                                    db = Db}) ->
     dets:delete(U2A),
     dets:delete(A2U),
@@ -96,6 +112,8 @@ cleanup_account_info(#account_info{user_to_authz = U2A,
     dets:delete(Orgs),
     dets:delete(Containers),
     dets:delete(Groups),
+    dets:delete(OrgUserAssoc),
+    dets:delete(AssociationRequests),
     dets:delete(Db).
 
 %% This is now intended to be called only from within mover_manager.
@@ -138,24 +156,26 @@ process_item_by_type(auth_join,
     ok;
 process_item_by_type(auth_org,
                      #account_info{orgname_to_guid=OrgName2Guid,
-                                   orgs_by_guid=Orgs},
+                                   orgs_by_guid=Orgs,
+                                   org_id_to_guid=OrgIdToGuid},
                      Key, RevId, Body) ->
     OrgName = ej:get({<<"name">>}, Body),
     Guid = ej:get({<<"guid">>}, Body),
     dets:insert(OrgName2Guid, {OrgName, Guid, RevId, Key}),
     dets:insert(Orgs, {Guid, Body, RevId, Key}),
+    dets:insert(OrgIdToGuid, {Key, Guid}),
     ok;
 process_item_by_type(auth_user,
                      #account_info{db=Db}, Key, RevId, Body) ->
     dets:insert(Db, {{auth_user, Key}, Body, RevId}),
     ok;
 process_item_by_type(association_request,
-                     #account_info{db=Db}, Key, RevId, Body) ->
-    dets:insert(Db, {{association_request, Key}, Body, RevId}),
+                     #account_info{association_requests=AssociationRequests}, Key, RevId, Body) ->
+    dets:insert(AssociationRequests, {Key, Body, RevId}),
     ok;
 process_item_by_type(org_user,
-                     #account_info{db=Db}, Key, RevId, Body) ->
-    dets:insert(Db, {{org_user, Key}, Body, RevId}),
+                     #account_info{org_user_associations=OrgUserAssoc}, Key, RevId, Body) ->
+    dets:insert(OrgUserAssoc, {Key, Body, RevId}),
     ok;
 process_item_by_type(design_doc,
                      #account_info{db=Db}, Key, RevId, Body) ->
@@ -187,6 +207,45 @@ user_to_auth_live(Cn, Id, LogContext) ->
         AuthId ->
             {ok, AuthId}
     end.
+
+%% Method for parsing either org_user or association_request data
+%% into a format that those migrations can use.
+%%
+%% Input:
+%%   #account_info: filled out #account_info to access the dets info
+%%   atom: (org_user | association_request)
+%% Output:
+%%   list of all objects found for input atom type: [{UserId, OrgId, LastUpdatedBy, DataBody}, ...]
+all_org_association_data(#account_info{org_user_associations = OrgUserAssoc,
+                                       association_requests=AssociationRequests,
+                                       org_id_to_guid = OrgIdToGuid}, FetchType) ->
+    %% Since we didn't store the "last updated by" authz id in couch and
+    %% that field is required in SQL, we have to fill in something while migrating.
+    %% We are just using pivotal's authz id for this.
+    {ok, {user, LastUpdatedBy}} = chef_sql:fetch_object([<<"pivotal">>], user, find_user_by_username, [authz_id]),
+
+    Fun = fun({_Key, UserBody, _RevId}, Acc) ->
+                  OrgId = ej:get({<<"organization">>}, UserBody),
+                  try
+                      [{_, OrgGuid}] = dets:lookup(OrgIdToGuid, OrgId),
+                      UserId = ej:get({<<"user">>}, UserBody),
+                      [{UserId, OrgGuid, LastUpdatedBy, UserBody} | Acc]
+                  catch
+                      %% If we can't find a GUID for the Org ID, then this association is bogus.
+                      %% Most likely, the org was deleted and not properly cleaned up.
+                      _:_ ->
+                          lager:warning("org_user_association_warning invalid association for Org ID: ~s ~n", [OrgId]),
+                          Acc
+                  end
+
+          end,
+    case FetchType of
+        org_user ->
+            DetsTable = OrgUserAssoc;
+        association_request ->
+            DetsTable = AssociationRequests
+    end,
+    dets:foldl(Fun, [], DetsTable).
 
 %% @doc Return a list of `org_info' records for all assigned orgs.
 all_orgs(#account_info{} = AcctInfo) ->
@@ -249,6 +308,26 @@ is_precreated_org({[_H|_T]} = OrgEjson)  ->
 
 is_precreated_org(OrgId, AInfo) ->
     is_precreated_org(get_org_by_guid(OrgId, AInfo)).
+
+% returns the org object in a useful format:
+% {guid, authz_id, requester_id, raw_object}
+get_parsed_org_object_by_name(#account_info{orgs_by_guid=Orgs,
+                                            orgname_to_guid=OrgName2Guid,
+                                            user_to_authz=User2Auth},
+                              OrgName) ->
+    [{_, Guid, _, Key}] = dets:lookup(OrgName2Guid, OrgName),
+    [{_, RawObject, _, _}] = dets:lookup(Orgs, Guid),
+    % update with correct time format
+    OldTimestamp = ej:get({<<"assigned_at">>}, RawObject),
+    NewTimestamp = list_to_binary(lists:sublist(re:replace(OldTimestamp, "/", "-", [global, {return, list}]), 19)),
+    UpdatedRawObject = ej:set({<<"assigned_at">>}, RawObject, NewTimestamp),
+    [{_, AuthzId, _, _}] = dets:lookup(User2Auth, Key),
+    {Guid,
+     AuthzId,
+     ej:get({<<"requester_id">>}, UpdatedRawObject),
+     UpdatedRawObject
+    }.
+
 
 %% returns a list of [{container_guid, authz_guid, last_requestor_guid, container_name_atom}, ...]
 get_global_containers_list(#account_info{global_containers=GlobalContainers,

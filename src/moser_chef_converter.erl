@@ -274,7 +274,7 @@ create_record(RequesterId, OldId, Type, Org, AuthzId, Data) ->
     Rec = chef_object:new_record(Type, OrgId, AuthzId, Data),
     ObjWithDate = chef_object:set_created(Rec, RequesterId),
     set_id(ObjWithDate, OldId).
-    
+
 
 insert_one(#org_info{org_name = OrgName} = Org,
            {{client, Name}, {OldId, Data}},
@@ -438,17 +438,23 @@ log_insert(Status, Org, OldId, AuthzId, ObjectRec) ->
                     _    -> <<"FAIL">>
                 end,
     NewId = chef_object:id(ObjectRec),
-    Name = name_from_object(ObjectRec),
+    Name = try name_from_object(ObjectRec)
+           catch _:_ -> no_name_found
+           end,
     Type = chef_object:type_name(ObjectRec),
-    case Org of
-        global_placeholder_org ->
+    case special_case_org(Org) of
+        true ->
             lager:info("INSERT LOG ~s: ~s ~s ~s ~s ~s",
                [LogStatus, Type, OldId, NewId, AuthzId, Name]);
-        Org ->
+        false ->
             lager:info(?LOG_META(Org), "INSERT LOG ~s: ~s ~s ~s ~s ~s",
                        [LogStatus, Type, OldId, NewId, AuthzId, Name])
     end,
     Status.
+
+special_case_org(global_placeholder_org) -> true;
+special_case_org(no_org) -> true;
+special_case_org(_) -> false.
 
 name_from_object(ObjectRec) ->
     case chef_object:name(ObjectRec) of

@@ -33,6 +33,7 @@
          get_org_guid_by_name/2,
          get_org_by_guid/2,
          get_global_containers_list/1,
+         get_global_groups_list/1,
          is_precreated_org/1,
          is_precreated_org/2,
          expand_org_info/1,
@@ -142,8 +143,8 @@ process_account_item(Account, Key, RevId, Body) ->
     ok.
 
 process_item_by_type({auth, group},
-                     #account_info{db=Db}, Key, RevId, Body) ->
-    dets:insert(Db, {{{auth, group}, Key}, Body, RevId}),
+                     #account_info{global_groups=Groups}, Key, RevId, Body) ->
+    dets:insert(Groups, {Key, Body, RevId}),
     ok;
 process_item_by_type(auth_join,
                      #account_info{user_to_authz=User2Auth,
@@ -334,11 +335,28 @@ get_global_containers_list(#account_info{global_containers=GlobalContainers,
                                          user_to_authz=UserToAuthz
                                         }) ->
     Fun = fun({Guid, RawObject, _}, Acc) ->
-                  {[{<<"containername">>,ContainerName}, _, {<<"requester_id">>,RequesterId}, _]} = RawObject,
+                  {[_, _, {<<"requester_id">>,RequesterId}, _]} = RawObject,
                   [{_, AuthzId, _, _}] = dets:lookup(UserToAuthz, Guid),
-                  [{Guid, AuthzId, RequesterId, ContainerName, RawObject} | Acc]
+                  [{Guid, AuthzId, RequesterId, RawObject} | Acc]
           end,
     dets:foldl(Fun, [], GlobalContainers).
+
+get_global_groups_list(#account_info{global_groups=GlobalGroups,
+                                     user_to_authz=UserToAuthz
+                                    }) ->
+    Fun = fun({Guid, RawObject, _}, Acc) ->
+                  RequesterId = ej:get({<<"requester_id">>}, RawObject),
+                  try
+                      [{_, AuthzId, _, _}] = dets:lookup(UserToAuthz, Guid),
+                      [{Guid, AuthzId, RequesterId, RawObject} | Acc]
+                  catch
+                      %% if you can't find an authz id, log it and continue
+                      _:_ ->
+                          lager:warning("global_groups no authz id for group GUID: ~s ~n", [Guid]),
+                          Acc
+                  end
+         end,
+    dets:foldl(Fun, [], GlobalGroups).
 
 %% FIXME: account_info is really a global tabel and could be extracted out.
 

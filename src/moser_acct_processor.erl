@@ -335,7 +335,7 @@ get_global_containers_list(#account_info{global_containers=GlobalContainers,
                                          user_to_authz=UserToAuthz
                                         }) ->
     Fun = fun({Guid, RawObject, _}, Acc) ->
-                  {[_, _, {<<"requester_id">>,RequesterId}, _]} = RawObject,
+                  RequesterId = ej:get({<<"requester_id">>}, RawObject),
                   [{_, AuthzId, _, _}] = dets:lookup(UserToAuthz, Guid),
                   [{Guid, AuthzId, RequesterId, RawObject} | Acc]
           end,

@@ -50,7 +50,7 @@
 %%%===================================================================
 
 open_account() ->
-    open_account([{access, read}]).
+    open_account([{access, read_write}]).
 
 open_account(Args) ->
     {ok, U2A} = moser_utils:dets_open_file(user_to_authz, Args),

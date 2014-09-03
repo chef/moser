@@ -34,7 +34,8 @@
          sqerl_delete_helper/2,
          delete_table_for_org/2,
          maybe_log_throw/4,
-         maybe_log_error/4
+         maybe_log_error/4,
+         delete_all_org_and_global_groups_data/0
 ]).
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("moser/include/moser.hrl").
@@ -602,6 +603,41 @@ delete_table_for_org("cookbook_versions", OrgId) ->
     end;
 delete_table_for_org(Table,OrgId) ->
     sqerl_delete_helper(Table, {"org_id", equals, OrgId}).
+
+%% Helper method for reverting orgs / gloabl groups migration.
+%% Deletes all data from orgs / assocs / invites / global groups tables,
+%% so proceed wtih caution.
+delete_all_org_and_global_groups_data() ->
+    Result = delete_all_org_data(),
+    case Result of
+        {ok, "orgs", _} ->
+            delete_all_global_groups_data();
+        % org deletion failed, pass error on
+        _ ->
+            Result
+    end.
+
+delete_all_org_data() ->
+    Stmt = <<"DELETE from orgs;">>,
+    case sqerl:execute(Stmt) of
+        {ok, X} ->
+            {ok, "orgs", X};
+        {error, Error} ->
+            lager:error("Cleanup error ~p ~p ~p",
+                        [Error, "orgs", Stmt]),
+            {error, "orgs", Error}
+    end.
+
+delete_all_global_groups_data() ->
+    Stmt = iolist_to_binary(["DELETE from groups WHERE org_id = '", ?GLOBAL_PLACEHOLDER_ORG_ID, "';"]),
+    case sqerl:execute(Stmt) of
+        {ok, X} ->
+            {ok, "global_groups", X};
+        {error, Error} ->
+            lager:error("Cleanup error ~p ~p ~p",
+                        [Error, "global_groups", Stmt]),
+            {error, "global_groups", Error}
+    end.
 
 cleanup_organization(OrgName) ->
     cleanup_orgid(moser_utils:orgname_to_guid(OrgName)).

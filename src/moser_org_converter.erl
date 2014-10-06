@@ -27,6 +27,7 @@ insert_org_user_association(UserGuid, OrgGuid, LastUpdatedBy, RawObject) ->
     moser_chef_converter:try_insert(no_org, ObjWithDate, UserGuid, null).
 
 insert_org_user_invite(UserGuid, OrgGuid, LastUpdatedBy, RawObject) ->
-    Object = chef_object:new_record(oc_chef_org_user_invite, OrgGuid, null, RawObject),
+    UserGuid = ej:get({<<"user">>}, RawObject),
+    Object = chef_object:new_record(oc_chef_org_user_invite, OrgGuid, {authz_id, UserGuid}, RawObject),
     ObjWithDate = chef_object:set_created(Object, LastUpdatedBy),
     moser_chef_converter:try_insert(no_org, ObjWithDate, UserGuid, null).

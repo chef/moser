@@ -7,7 +7,7 @@
 -module(moser_org_converter).
 
 -include("moser.hrl").
--include_lib("oc_chef_authz/include/oc_chef_types.hrl").
+-include_lib("oc_erchef/include/oc_chef_types.hrl").
 
 -export([
 	 insert_org/4,

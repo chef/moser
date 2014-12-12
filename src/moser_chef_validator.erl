@@ -32,7 +32,7 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("moser/include/moser.hrl").
 -include_lib("ej/include/ej.hrl").
--include_lib("chef_objects/include/chef_types.hrl").
+-include_lib("oc_erchef/include/chef_types.hrl").
 
 process_validate_all() ->
     moser_utils:for_all_orgs(fun process_validate_org/1).

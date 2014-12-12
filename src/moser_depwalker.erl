@@ -17,7 +17,7 @@
          node_info/2
           ]).
 
--include_lib("chef_objects/include/chef_types.hrl").
+-include_lib("oc_erchef/include/chef_types.hrl").
 
 -record(totals, { node = 0, depsolver_timeout = 0,
                   depsolver_unreachable = 0, depsolver_other = 0,

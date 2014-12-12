@@ -7,8 +7,8 @@
 -module(moser_global_object_converter).
 
 -include("moser.hrl").
--include_lib("oc_chef_authz/include/oc_chef_types.hrl").
--include_lib("chef_objects/include/chef_types.hrl").
+-include_lib("oc_erchef/include/oc_chef_types.hrl").
+-include_lib("oc_erchef/include/chef_types.hrl").
 
 -export([
          insert_container/4,

@@ -31,8 +31,8 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include("moser.hrl").
 -include_lib("ej/include/ej.hrl").
--include_lib("chef_objects/include/chef_types.hrl").
--include_lib("oc_chef_authz/include/oc_chef_types.hrl").
+-include_lib("oc_erchef/include/chef_types.hrl").
+-include_lib("oc_erchef/include/oc_chef_types.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 

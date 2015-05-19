@@ -9,3 +9,5 @@ rel/moser
 .plt
 *.couch
 .eunit
+erln8.config
+.rebar
